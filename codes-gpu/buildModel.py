@@ -16,7 +16,7 @@ def preprocessImage(imgPath):
     img = Image.open(imgPath)
     img = transforms.Pad((80, 48), fill=0)(img)
     img = transforms.ToTensor()(img)
-    return Variable(img.unsqueeze_(0))
+    return Variable(img.unsqueeze_(0).cuda())
 
 def cnn(img):
     vgg = models.alexnet(pretrained=True)
