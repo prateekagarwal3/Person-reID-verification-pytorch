@@ -16,7 +16,7 @@ class TripletNet(nn.Module):
         self.featureVector = rnnOutput
 
     def forward(self, x, y, z):
-        featureVectorH = self.featureVector(Variable(x.float()).cuda)
-        featureVectorHp = self.featureVector(Variable(y.float()).cuda)
-        featureVectorHn = self.featureVector(Variable(z.float()).cuda)
+        featureVectorH = self.featureVector(Variable(x.float()))
+        featureVectorHp = self.featureVector(Variable(y.float()))
+        featureVectorHn = self.featureVector(Variable(z.float()))
         return featureVectorH, featureVectorHp, featureVectorHn

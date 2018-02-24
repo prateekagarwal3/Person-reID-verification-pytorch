@@ -126,7 +126,7 @@ def loadImage(filename):
     imgV = transforms.ToPILImage()(imgV)
     img = transforms.Pad((80, 48), fill=0)(img)
     img = transforms.ToTensor()(img)
-    img = Variable(img.unsqueeze_(0).cuda())
+    img = Variable(img.unsqueeze_(0))
     return buildModel.cnn(img)
 
 def loadSequenceImages(cameraDir,filesList, actualFrameCount):
