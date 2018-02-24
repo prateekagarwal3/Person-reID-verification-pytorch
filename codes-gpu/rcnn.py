@@ -38,8 +38,8 @@ class RNN(nn.Module):
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
 
     def forward(self, x):
-        h0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))
-        c0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))
+        h0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda())
+        c0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size).cuda())
         out, hidden_data = self.lstm(x, (h0, c0))
         return out
 
@@ -118,19 +118,19 @@ for epoch in range(num_epochs):
                     negativeFrameRemaining -= 16
 
                 H, Hp, Hn = tripletRNN(anchorFramesRNNInput, positiveFramesRNNInput, negativeFramesRNNInput)
-                loss = Variable(torch.zeros(1))
+                loss = Variable(torch.zeros(1).cuda())
                 # print H, Hp, Hn
                 for j in range(sequence_length):
-                    loss = loss + torch.max(Variable(torch.zeros(1)), Variable(alpha) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
+                    loss = loss + torch.max(Variable(torch.zeros(1).cuda()), Variable(alpha.cuda()) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
                 loss = loss / sequence_length
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
 
             H, Hp, Hn = tripletRNN(anchorFrames[anchorFrameCount - sequence_length:actualFrameCount], positiveFrames[positiveFrameCount - sequence_length:actualFrameCount], negativeFrames[negativeFrameCount - sequence_length:actualFrameCount])
-            loss = Variable(torch.zeros(1))
+            loss = Variable(torch.zeros(1).cuda())
             for j in range(sequence_length):
-                loss = loss + torch.max(Variable(torch.zeros(1)), Variable(alpha) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
+                loss = loss + torch.max(Variable(torch.zeros(1).cuda()), Variable(alpha.cuda()) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
             loss = loss / sequence_length
             optimizer.zero_grad()
             loss.backward()
