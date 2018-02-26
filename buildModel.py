@@ -12,11 +12,16 @@ from torch.autograd import Variable
 from sklearn.decomposition import PCA
 import torchvision.transforms as transforms
 
-def preprocessImage(imgPath):
-    img = Image.open(imgPath)
-    img = transforms.Pad((80, 48), fill=0)(img)
-    img = transforms.ToTensor()(img)
-    return Variable(img.unsqueeze_(0))
+class tripletRNN(nn.Module):
+    def __init__(self, rnnOutput):
+        super(tripletRNN, self).__init__()
+        self.featureVector = rnnOutput
+
+    def forward(self, x, y, z):
+        featureVectorH = self.featureVector(Variable(x.float()))
+        featureVectorHp = self.featureVector(Variable(y.float()))
+        featureVectorHn = self.featureVector(Variable(z.float()))
+        return featureVectorH, featureVectorHp, featureVectorHn
 
 def cnn(img):
     vgg = models.alexnet(pretrained=True)
@@ -24,5 +29,3 @@ def cnn(img):
     new_classifier = torch.nn.Sequential(*mod[:2])
     vgg.classifier = new_classifier
     return vgg(img)
-
-# print cnn(preprocessImage('/Users/prateek/8thSem/rl-person-verification/dataset/iLIDS-VID/i-LIDS-VID/sequences/cam1/person001/cam1_person001_00317.png'))

@@ -79,27 +79,28 @@ def generateTriplets(nTotalPersons, testTrainSplit):
     inds = torch.randperm(nTotalPersons)
     trainInds = inds[0:splitPoint]
     testInds = inds[(splitPoint):nTotalPersons+1]
+
     trainTriplets = []
     testTriplets = []
     for person in trainInds:
         triplet = [0, 0, 0]
-        triplet[0] = person
-        triplet[1] = person
+        triplet[0] = person+1
+        triplet[1] = triplet[0]
         while(1):
-            triplet[2] = random.choice(trainInds)
-            if triplet[2] == person:
-                triplet[2] = random.choice(trainInds)
+            triplet[2] = random.choice(trainInds) + 1
+            if triplet[2] == triplet[1]:
+                triplet[2] = random.choice(trainInds) + 1
             else:
                 break
         trainTriplets.append(triplet)
     for person in testInds:
         triplet = [0, 0, 0]
         triplet[0] = person
-        triplet[1] = person
+        triplet[1] = triplet[0]
         while(1):
-            triplet[2] = random.choice(testInds)
-            if triplet[2] == person:
-                triplet[2] = random.choice(testInds)
+            triplet[2] = random.choice(testInds) + 1
+            if triplet[2] == triplet[1]:
+                triplet[2] = random.choice(testInds) + 1
             else:
                 break
         testTriplets.append(triplet)

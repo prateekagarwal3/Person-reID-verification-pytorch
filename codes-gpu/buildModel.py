@@ -19,7 +19,7 @@ def preprocessImage(imgPath):
     return Variable(img.unsqueeze_(0).cuda())
 
 def cnn(img):
-    vgg = models.alexnet(pretrained=True)
+    vgg = models.alexnet(pretrained=True).cuda()
     mod = list(vgg.classifier.children())
     new_classifier = torch.nn.Sequential(*mod[:2])
     vgg.classifier = new_classifier

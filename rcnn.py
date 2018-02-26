@@ -1,6 +1,5 @@
 import prepareDataset
-import tripletNetwork
-
+import buildModel
 import os
 import torch
 import numpy as np
@@ -44,7 +43,7 @@ class RNN(nn.Module):
         return out
 
 rnn = RNN(input_size, hidden_size, num_layers)
-tripletRNN = tripletNetwork.TripletNet(rnn)
+tripletRNN = buildModel.tripletRNN(rnn)
 
 cos = nn.CosineSimilarity(dim=1, eps=1e-6)
 optimizer = torch.optim.SGD(tripletRNN.parameters(), lr=learning_rate, momentum=momentum)

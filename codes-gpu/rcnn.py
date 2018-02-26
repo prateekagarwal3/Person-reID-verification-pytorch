@@ -45,6 +45,7 @@ class RNN(nn.Module):
 
 rnn = RNN(input_size, hidden_size, num_layers)
 tripletRNN = tripletNetwork.TripletNet(rnn)
+tripletRNN.cuda()
 
 cos = nn.CosineSimilarity(dim=1, eps=1e-6)
 optimizer = torch.optim.SGD(tripletRNN.parameters(), lr=learning_rate, momentum=momentum)
