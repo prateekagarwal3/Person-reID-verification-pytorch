@@ -12,20 +12,32 @@ from torch.autograd import Variable
 from sklearn.decomposition import PCA
 import torchvision.transforms as transforms
 
-class tripletRNN(nn.Module):
+def cnn(img):
+    alexnet = models.alexnet(pretrained=True)
+    if torch.cuda.is_available():
+        alexnet = alexnet.is_available()
+    mod = list(alexnet.classifier.children())
+    new_classifier = torch.nn.Sequential(*mod[:2])
+    alexnet.classifier = new_classifier
+    return alexnet(img)
+
+class TripletNet(nn.Module):
     def __init__(self, rnnOutput):
-        super(tripletRNN, self).__init__()
+        super(TripletNet, self).__init__()
         self.featureVector = rnnOutput
 
     def forward(self, x, y, z):
-        featureVectorH = self.featureVector(Variable(x.float()))
-        featureVectorHp = self.featureVector(Variable(y.float()))
-        featureVectorHn = self.featureVector(Variable(z.float()))
+        x = x.float()
+        y = y.float()
+        z = z.float()
+        if torch.cuda.is_available():
+            x = x.cuda()
+            y = y.cuda()
+            z = z.cuda()
+        x = Variable(x)
+        y = Variable(y)
+        z = Variable(z)
+        featureVectorH = self.featureVector(x)
+        featureVectorHp = self.featureVector(y)
+        featureVectorHn = self.featureVector(z)
         return featureVectorH, featureVectorHp, featureVectorHn
-
-def cnn(img):
-    vgg = models.alexnet(pretrained=True)
-    mod = list(vgg.classifier.children())
-    new_classifier = torch.nn.Sequential(*mod[:2])
-    vgg.classifier = new_classifier
-    return vgg(img)

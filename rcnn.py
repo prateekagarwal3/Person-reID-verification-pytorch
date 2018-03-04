@@ -1,5 +1,6 @@
-import prepareDataset
 import buildModel
+import prepareDataset
+
 import os
 import torch
 import numpy as np
@@ -20,6 +21,8 @@ num_layers = 2
 learning_rate = 0.001
 momentum = 0
 alpha = torch.FloatTensor([0.4])
+if torch.cuda.is_available():
+    alpha = alpha.cuda()
 num_epochs = 2
 batch_size = 1
 testTrainSplit = 0.8
@@ -37,17 +40,24 @@ class RNN(nn.Module):
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
 
     def forward(self, x):
-        h0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))
-        c0 = Variable(torch.zeros(self.num_layers, x.size(0), self.hidden_size))
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        if torch.cuda.is_available():
+            h0 = h0.cuda()
+            c0 = c0.cuda()
+        h0 = Variable(h0)
+        c0 = Variable(c0)
         out, hidden_data = self.lstm(x, (h0, c0))
         return out
 
 rnn = RNN(input_size, hidden_size, num_layers)
-tripletRNN = buildModel.tripletRNN(rnn)
+tripletRNN = buildModel.TripletNet(rnn)
+if torch.cuda.is_available():
+    tripletRNN.cuda()
 
 cos = nn.CosineSimilarity(dim=1, eps=1e-6)
 optimizer = torch.optim.SGD(tripletRNN.parameters(), lr=learning_rate, momentum=momentum)
-
+# if torch.cuda.is_available():
 torch.backends.cudnn.benchmark = True
 count = 1
 tripletRNN.train()
@@ -72,10 +82,14 @@ for epoch in range(num_epochs):
             framesCountList = personFramesDict[negative]
             negativeFramesCount = framesCountList[2-cam]
             actualFramesCount = max(anchorFramesCount, positiveFramesCount, negativeFramesCount)
+            # actualFramesCount = min(anchorFramesCount, positiveFramesCount, negativeFramesCount)
 
             anchorFrames = prepareDataset.getPersonFrames(seqRootRGB, anchor, cam, actualFramesCount)
             positiveFrames = prepareDataset.getPersonFrames(seqRootRGB, positive, 3-cam, positiveFramesCount)
             negativeFrames = prepareDataset.getPersonFrames(seqRootRGB, negative, 3-cam, negativeFramesCount)
+            '''anchorFrames = prepareDataset.getPersonFrames(seqRootRGB, anchor, cam, actualFramesCount)
+            positiveFrames = prepareDataset.getPersonFrames(seqRootRGB, positive, 3-cam, actualFramesCount)
+            negativeFrames = prepareDataset.getPersonFrames(seqRootRGB, negative, 3-cam, actualFramesCount)'''
 
             quotient = actualFramesCount / sequence_length
             remainder = actualFramesCount % sequence_length
@@ -112,11 +126,22 @@ for epoch in range(num_epochs):
                     tempNegativeFramesRNNInput = negativeFramesRNNInput
                     negativeFramesRemaining -= 16
 
+                if torch.cuda.is_available():
+                    anchorFramesRNNInput = anchorFramesRNNInput.cuda()
+                    positiveFramesRNNInput = positiveFramesRNNInput.cuda()
+                    negativeFramesRNNInput = negativeFramesRNNInput.cuda()
+
                 H, Hp, Hn = tripletRNN(anchorFramesRNNInput, positiveFramesRNNInput, negativeFramesRNNInput)
-                loss = Variable(torch.zeros(1))
+                loss = torch.zeros(1)
+                if torch.cuda.is_available():
+                    loss = loss.cuda()
+                loss = Variable(loss)
                 # print H, Hp, Hn
                 for j in range(sequence_length):
-                    loss = loss + torch.max(Variable(torch.zeros(1)), Variable(alpha) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
+                    zero = torch.zeros(1)
+                    if torch.cuda.is_available():
+                        zero = zero.cuda()
+                    loss = loss + torch.max(Variable(zero), Variable(alpha) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
                 loss = loss / sequence_length
                 print loss
                 optimizer.zero_grad()
@@ -124,9 +149,15 @@ for epoch in range(num_epochs):
                 optimizer.step()
 
             H, Hp, Hn = tripletRNN(anchorFrames[anchorFramesCount - sequence_length:anchorFramesCount], positiveFrames[negativeFramesCount - sequence_length:negativeFramesCount], negativeFrames[negativeFramesCount - sequence_length:negativeFramesCount])
-            loss = Variable(torch.zeros(1))
+            loss = torch.zeros(1)
+            if torch.cuda.is_available():
+                loss = loss.cuda()
+            loss = Variable(loss)
             for j in range(sequence_length):
-                loss = loss + torch.max(Variable(torch.zeros(1)), Variable(alpha) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
+                zero = torch.zeros(1)
+                if torch.cuda.is_available():
+                    zero = zero.cuda()
+                loss = loss + torch.max(Variable(zero), Variable(alpha) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
             loss = loss / sequence_length
             print loss
             optimizer.zero_grad()

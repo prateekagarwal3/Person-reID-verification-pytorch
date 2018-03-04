@@ -79,28 +79,27 @@ def generateTriplets(nTotalPersons, testTrainSplit):
     inds = torch.randperm(nTotalPersons)
     trainInds = inds[0:splitPoint]
     testInds = inds[(splitPoint):nTotalPersons+1]
-
     trainTriplets = []
     testTriplets = []
     for person in trainInds:
         triplet = [0, 0, 0]
-        triplet[0] = person+1
-        triplet[1] = triplet[0]
+        triplet[0] = person
+        triplet[1] = person
         while(1):
-            triplet[2] = random.choice(trainInds) + 1
-            if triplet[2] == triplet[1]:
-                triplet[2] = random.choice(trainInds) + 1
+            triplet[2] = random.choice(trainInds)
+            if triplet[2] == person:
+                triplet[2] = random.choice(trainInds)
             else:
                 break
         trainTriplets.append(triplet)
     for person in testInds:
         triplet = [0, 0, 0]
         triplet[0] = person
-        triplet[1] = triplet[0]
+        triplet[1] = person
         while(1):
-            triplet[2] = random.choice(testInds) + 1
-            if triplet[2] == triplet[1]:
-                triplet[2] = random.choice(testInds) + 1
+            triplet[2] = random.choice(testInds)
+            if triplet[2] == person:
+                triplet[2] = random.choice(testInds)
             else:
                 break
         testTriplets.append(triplet)
@@ -127,7 +126,10 @@ def loadImage(filename):
     imgV = transforms.ToPILImage()(imgV)
     img = transforms.Pad((80, 48), fill=0)(img)
     img = transforms.ToTensor()(img)
-    img = Variable(img.unsqueeze_(0))
+    img = img.unsqueeze_(0)
+    if torch.cuda.is_available():
+        img = img.cuda()
+    img = Variable(img)
     return buildModel.cnn(img)
 
 def loadSequenceImages(cameraDir,filesList, actualFrameCount):
