@@ -27,6 +27,8 @@ EPS_DECAY = 200
 Transition = namedtuple('Transition', ('pid', 'state', 'action', 'next_state', 'reward'))
 
 model = utilsRL.DQN()
+if torch.cuda.is_available():
+    model = model.cuda()
 optimizer = optim.RMSprop(model.parameters(), lr = 1e-6)
 memory = utilsRL.ReplayMemory(10000)
 episodeDurations = []
@@ -35,7 +37,7 @@ seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 trainTriplets, testTriplets = prepareDataset.generateTriplets(len(personFramesDict), testTrainSplit)
 # trainTriplets, testTriplets = utilsRL.modifyTriplets(trainTriplets, testTriplets, personIdxDict)
-# print trainTriplets, testTriplets
+# #print trainTriplets, testTriplets
 
 def optimizeModel(model):
     if len(memory) < BATCH_SIZE:
@@ -71,24 +73,25 @@ for triplet in trainTriplets:
     if temp > 2:
         break
     triplet = [34, 34, 172]
-    print("Current triplet", triplet)
+    #print("Current triplet", triplet)
     framesDropInfo, threshold, initialState = utilsRL.getTripletInfo(triplet, personIdxDict, personFramesDict)
     pid = {}
     pid['A'] = personIdxDict[triplet[0]]
     pid['B'] = personIdxDict[triplet[1]]
     pid['C'] = personIdxDict[triplet[2]]
-    print("PersonID", pid)
-    print("FrameInfo for anchor : {}, for positive : {}, for negative : {}".format(personFramesDict[pid['A']][0], personFramesDict[pid['B']][1], personFramesDict[pid['C']][1]))
+    #print("PersonID", pid)
+    #print("FrameInfo for anchor : {}, for positive : {}, for negative : {}".format(personFramesDict[pid['A']][0], personFramesDict[pid['B']][1], personFramesDict[pid['C']][1]))
     state = copy.deepcopy(initialState)
     for t in count():
-        print("Initial State", state)
+        # print("Initial State", state)
         action, framesDropInfo = utilsRL.getAction(state, framesDropInfo)
-        print("Action to be taken on {}, dropped frame = {}".format(action[0], action[1]),framesDropInfo[action[0]])
-        # utilsRL.checkTerminalState(state, threshold, pid, framesDropInfo)
+        # print("Action to be taken on {}, dropped frame = {}".format(action[0], action[1]),framesDropInfo[action[0]])
         nextState, reward, done = utilsRL.performAction(state, action, threshold, pid, framesDropInfo)
-        print("New State",nextState)
-        print("________________________________________________________________________________________________________________________")
-        print("________________________________________________________________________________________________________________________")
+        #print("Done value", done)
+        #print("New State",nextState)
+        #print("________________________________________________________________________________________________________________________")
+        #print("________________________________________________________________________________________________________________________")
+
         if done:
             nextState = None
         memory.push(pid, state, action, nextState, reward)
@@ -97,5 +100,6 @@ for triplet in trainTriplets:
         if done:
             episodeDurations.append(t + 1)
             break
+
 print episodeDurations
-# print memory.printMemory()
+print memory.displayMemory()

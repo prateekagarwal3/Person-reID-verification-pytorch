@@ -68,8 +68,8 @@ class ReplayMemory(object):
     def __len__(self):
         return len(self.memory)
 
-    def printMemory():
-        print memory
+    def displayMemory(self):
+        print self.memory
 
 class DQN(nn.Module):
 
@@ -139,20 +139,15 @@ def findReward(weights, newWeights, pid):
 def getframeDropIndex(framesDropInfo, channel):
     index = random.sample(framesDropInfo[channel], 1)
     index = index[0]
+    # print("Removing at index ", index)
     for i in range(0,5):
-        if index+i in framesDropInfo[channel]:
-            if index + i < len(framesDropInfo[channel]):
-                framesDropInfo[channel].pop(index)
-    for i in range(0,5):
-        if index+i in framesDropInfo[channel]:
-            if index + i < len(framesDropInfo[channel]):
-                framesDropInfo[channel].pop(index)
+        if index + i in framesDropInfo[channel]:
+            framesDropInfo[channel].remove(index + i)
+
     for i in range(1,5):
         if index - i in framesDropInfo[channel]:
-            print framesDropInfo[channel]
-            print index
-            if index - i > 0:
-                framesDropInfo[channel].pop(index-1)
+            framesDropInfo[channel].remove(index-i)
+
     return index, framesDropInfo
 
 def getAction(state, framesDropInfo):
@@ -167,9 +162,10 @@ def getAction(state, framesDropInfo):
     return action, framesDropInfo
 
 def checkTerminalState(state, threshold, pid, framesDropInfo):
-    doneT = 1 if sum(state['A']) <= threshold['A'] and sum(state['B']) <= threshold['B'] and sum(state['C']) <= threshold['C'] else 0
+    doneT = 1 if sum(state['A']) <= threshold['A'] or sum(state['B']) <= threshold['B'] or sum(state['C']) <= threshold['C'] else 0
     doneR = 1
-    count = 1
+    return doneT
+
     for channel in ['A', 'B', 'C']:
         for index in framesDropInfo[channel]:
             tempS = copy.deepcopy(state)
@@ -180,17 +176,16 @@ def checkTerminalState(state, threshold, pid, framesDropInfo):
                     nextState[channel][i + index] = 0
             for i in range(0,5):
                 if index+i in tempF[channel]:
-                    if index < len(tempF[channel]):
-                        tempF[channel].pop(index)
+                        tempF[channel].remove(index+i)
             for i in range(1,5):
                 if index - i in tempF[channel]:
-                    if index - i > 0:
-                        tempF[channel].pop(index-1)
+                    tempF[channel].remove(index-i)
+
             reward = findReward(state, nextState, pid)
-            # print reward
             if reward >= 0:
                 doneR = 0
                 return doneR and doneT
+
     return doneR and doneT
 
 def performAction(state, action, threshold, pid, framesDropInfo):
