@@ -69,7 +69,7 @@ def myPCA(X, reducedDimension):
     Y = matrix_w.T.dot(X)
     newX = np.linalg.pinv(matrix_w.T).dot(Y)
     MSE = mean_squared_error(X, newX)
-    print("MSE = {}".format(MSE))
+    # print("MSE = {}".format(MSE))
     endTime = time.time()
     print("Time taken by PCA",(endTime-startTime))
     return torch.from_numpy(Y.T)
@@ -160,9 +160,8 @@ def getPersonFrames(datasetRootDir, personDir, cam, actualFrameCount):
     seqImgs = getSequenceImageFiles(seqRoot)
     personFramesData = loadSequenceImages(seqRoot, seqImgs, actualFrameCount)
      # personFramesData = myPCA(personFramesData, 1024)
-    personFramesData = myPCA(personFramesData, 128)
-    return personFramesData.unsqueeze_(1)
-
+    personFramesData = myPCA(personFramesData, 64)
+    return personFramesData.unsqueeze_(0)
 
 def prepareDS(datasetRootDir):
     personFramesDict = {}

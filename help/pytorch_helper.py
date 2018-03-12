@@ -96,3 +96,10 @@ def dimensionAdder():
     X = torch.ones(23,128)
     X.unsqueeze_(1)
     print X
+
+def modelParameters():
+    model = models.alexnet(pretrained=False)
+    for name, param in model.state_dict().iteritems():
+        print name, param.size()
+
+modelParameters()

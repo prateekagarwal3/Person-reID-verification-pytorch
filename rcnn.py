@@ -23,11 +23,14 @@ momentum = 0
 alpha = torch.FloatTensor([0.4])
 if torch.cuda.is_available():
     alpha = alpha.cuda()
+alpha = Variable(alpha)
 num_epochs = 2
 batch_size = 1
 testTrainSplit = 0.8
 
 seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
+seqRootOP = '/Users/prateek/8thSem/dataset/iLIDS-VID-OF-HVP/sequences'
+
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 nTotalPersons = len(personFramesDict)
 trainTriplets, testTriplets = prepareDataset.generateTriplets(nTotalPersons, testTrainSplit)
@@ -51,24 +54,30 @@ class RNN(nn.Module):
         return out
 
 rnn = RNN(input_size, hidden_size, num_layers)
-tripletRNN = buildModel.TripletNet(rnn)
+tripletRNNRGB = buildModel.TripletNet(rnn)
 if torch.cuda.is_available():
-    tripletRNN.cuda()
+    tripletRNNRGB.cuda()
+
+tripletRNNOP = buildModel.TripletNet(rnn)
+if torch.cuda.is_available():
+    tripletRNNOP.cuda()
 
 cos = nn.CosineSimilarity(dim=1, eps=1e-6)
-optimizer = torch.optim.SGD(tripletRNN.parameters(), lr=learning_rate, momentum=momentum)
+optimizerRGB = torch.optim.SGD(tripletRNNRGB.parameters(), lr=learning_rate, momentum=momentum)
+optimizerOP = torch.optim.SGD(tripletRNNOP.parameters(), lr=learning_rate, momentum=momentum)
+
 # if torch.cuda.is_available():
 torch.backends.cudnn.benchmark = True
 count = 1
-tripletRNN.train()
+tripletRNNRGB.train()
 for epoch in range(num_epochs):
-    print("Epoch Loop Running", epoch)
+    # print("Epoch Loop Running", epoch)
     for triplet in trainTriplets:
         triplet = [15,15,213]
-        print("Triplet being used : ", triplet)
         count += 1
         if(count > 2):
             break
+        # print("Triplet being used : ", triplet)
         for cam in range(1,2):
             #print("Cam Loop Running")
             anchor = personIdxDict[triplet[0]]
@@ -82,14 +91,14 @@ for epoch in range(num_epochs):
             framesCountList = personFramesDict[negative]
             negativeFramesCount = framesCountList[2-cam]
             actualFramesCount = max(anchorFramesCount, positiveFramesCount, negativeFramesCount)
-            # actualFramesCount = min(anchorFramesCount, positiveFramesCount, negativeFramesCount)
+            # print(anchorFramesCount, positiveFramesCount, negativeFramesCount)
 
-            anchorFrames = prepareDataset.getPersonFrames(seqRootRGB, anchor, cam, actualFramesCount)
-            positiveFrames = prepareDataset.getPersonFrames(seqRootRGB, positive, 3-cam, positiveFramesCount)
-            negativeFrames = prepareDataset.getPersonFrames(seqRootRGB, negative, 3-cam, negativeFramesCount)
-            '''anchorFrames = prepareDataset.getPersonFrames(seqRootRGB, anchor, cam, actualFramesCount)
-            positiveFrames = prepareDataset.getPersonFrames(seqRootRGB, positive, 3-cam, actualFramesCount)
-            negativeFrames = prepareDataset.getPersonFrames(seqRootRGB, negative, 3-cam, actualFramesCount)'''
+            anchorFrames = torch.randn(1, anchorFramesCount, 128)
+            positiveFrames = torch.randn(1, positiveFramesCount, 128)
+            negativeFrames = torch.randn(1, negativeFramesCount, 128)
+            # anchorFrames = prepareDataset.getPersonFrames(seqRootRGB, anchor, cam, anchorFramesCount)
+            # positiveFrames = prepareDataset.getPersonFrames(seqRootRGB, positive, 3-cam, positiveFramesCount)
+            # negativeFrames = prepareDataset.getPersonFrames(seqRootRGB, negative, 3-cam, negativeFramesCount)
 
             quotient = actualFramesCount / sequence_length
             remainder = actualFramesCount % sequence_length
@@ -98,70 +107,131 @@ for epoch in range(num_epochs):
             positiveFramesRemaining = positiveFramesCount
             negativeFramesRemaining = negativeFramesCount
 
-            tempAnchorFramesRNNInput = anchorFrames[0:16]
-            tempPositiveFramesRNNInput = positiveFrames[0:16]
-            tempNegativeFramesRNNInput = negativeFrames[0:16]
+            tempAnchorFramesRNNInput = anchorFrames[0][0:16]
+            tempPositiveFramesRNNInput = positiveFrames[0][0:16]
+            tempNegativeFramesRNNInput = negativeFrames[0][0:16]
 
             # print("Q, R:", quotient, remainder)
-            for i in range(quotient):
-                print("Quotient Loop Running")
+            for i in range(quotient+1):
+                # print("Quotient Loop Running")
                 if anchorFramesRemaining < 16:
                     anchorFramesRNNInput = tempAnchorFramesRNNInput
                 else:
-                    anchorFramesRNNInput = anchorFrames[sequence_length*(i):sequence_length*(i+1)]
+                    anchorFramesRNNInput = anchorFrames[0][sequence_length*(i):sequence_length*(i+1)]
                     tempAnchorFramesRNNInput = anchorFramesRNNInput
                     anchorFramesRemaining -= 16
 
                 if positiveFramesRemaining < 16:
                     positiveFramesRNNInput = tempPositiveFramesRNNInput
                 else:
-                    positiveFramesRNNInput = positiveFrames[sequence_length*(i):sequence_length*(i+1)]
+                    positiveFramesRNNInput = positiveFrames[0][sequence_length*(i):sequence_length*(i+1)]
                     tempPositiveFramesRNNInput = positiveFramesRNNInput
                     positiveFramesRemaining -= 16
 
                 if negativeFramesRemaining < 16:
                     negativeFramesRNNInput = tempNegativeFramesRNNInput
                 else:
-                    negativeFramesRNNInput = negativeFrames[sequence_length*(i):sequence_length*(i+1)]
+                    negativeFramesRNNInput = negativeFrames[0][sequence_length*(i):sequence_length*(i+1)]
                     tempNegativeFramesRNNInput = negativeFramesRNNInput
                     negativeFramesRemaining -= 16
+
+                if i == quotient:
+                    anchorFramesRNNInput = anchorFrames[0][actualFramesCount - sequence_length:actualFramesCount]
+                    positiveFramesRNNInput = positiveFrames[0][positiveFramesCount - sequence_length:positiveFramesCount]
+                    negativeFramesRNNInput = negativeFrames[0][negativeFramesCount - sequence_length:negativeFramesCount]
 
                 if torch.cuda.is_available():
                     anchorFramesRNNInput = anchorFramesRNNInput.cuda()
                     positiveFramesRNNInput = positiveFramesRNNInput.cuda()
                     negativeFramesRNNInput = negativeFramesRNNInput.cuda()
 
-                H, Hp, Hn = tripletRNN(anchorFramesRNNInput, positiveFramesRNNInput, negativeFramesRNNInput)
+                H, Hp, Hn = tripletRNNRGB(anchorFramesRNNInput.view(batch_size, sequence_length, input_size), positiveFramesRNNInput.view(batch_size, sequence_length, input_size), negativeFramesRNNInput.view(batch_size, sequence_length, input_size))
+                print H, Hp, Hn
+
                 loss = torch.zeros(1)
                 if torch.cuda.is_available():
                     loss = loss.cuda()
                 loss = Variable(loss)
-                # print H, Hp, Hn
-                for j in range(sequence_length):
-                    zero = torch.zeros(1)
-                    if torch.cuda.is_available():
-                        zero = zero.cuda()
-                    loss = loss + torch.max(Variable(zero), Variable(alpha) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
-                loss = loss / sequence_length
-                print loss
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-            H, Hp, Hn = tripletRNN(anchorFrames[anchorFramesCount - sequence_length:anchorFramesCount], positiveFrames[negativeFramesCount - sequence_length:negativeFramesCount], negativeFrames[negativeFramesCount - sequence_length:negativeFramesCount])
-            loss = torch.zeros(1)
-            if torch.cuda.is_available():
-                loss = loss.cuda()
-            loss = Variable(loss)
-            for j in range(sequence_length):
                 zero = torch.zeros(1)
                 if torch.cuda.is_available():
                     zero = zero.cuda()
-                loss = loss + torch.max(Variable(zero), Variable(alpha) - cos(H[j], Hp[j]) + cos(H[j], Hn[j]))
-            loss = loss / sequence_length
-            print loss
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                zero = Variable(zero)
+                loss += torch.sum(torch.max(zero, alpha - cos(H[0], Hp[0]) + cos(H[0], Hn[0])))
+                loss /= sequence_length
+                # print loss
+                optimizerRGB.zero_grad()
+                loss.backward()
+                optimizerRGB.step()
 
-torch.save(tripletRNN.state_dict(), '/Users/prateek/8thSem/rl-person-verification/runs/model_run.pt')
+            anchorFrames = torch.randn(1, anchorFramesCount, 128)
+            positiveFrames = torch.randn(1, positiveFramesCount, 128)
+            negativeFrames = torch.randn(1, negativeFramesCount, 128)
+            # anchorFrames = prepareDataset.getPersonFrames(seqRootOP, anchor, cam, anchorFramesCount)
+            # positiveFrames = prepareDataset.getPersonFrames(seqRootOP, positive, 3-cam, positiveFramesCount)
+            # negativeFrames = prepareDataset.getPersonFrames(seqRootOP, negative, 3-cam, negativeFramesCount)
+
+            quotient = actualFramesCount / sequence_length
+            remainder = actualFramesCount % sequence_length
+
+            anchorFramesRemaining = anchorFramesCount
+            positiveFramesRemaining = positiveFramesCount
+            negativeFramesRemaining = negativeFramesCount
+
+            tempAnchorFramesRNNInput = anchorFrames[0][0:16]
+            tempPositiveFramesRNNInput = positiveFrames[0][0:16]
+            tempNegativeFramesRNNInput = negativeFrames[0][0:16]
+
+            # print("Q, R:", quotient, remainder)
+            for i in range(quotient+1):
+                # print("Quotient Loop Running")
+                if anchorFramesRemaining < 16:
+                    anchorFramesRNNInput = tempAnchorFramesRNNInput
+                else:
+                    anchorFramesRNNInput = anchorFrames[0][sequence_length*(i):sequence_length*(i+1)]
+                    tempAnchorFramesRNNInput = anchorFramesRNNInput
+                    anchorFramesRemaining -= 16
+
+                if positiveFramesRemaining < 16:
+                    positiveFramesRNNInput = tempPositiveFramesRNNInput
+                else:
+                    positiveFramesRNNInput = positiveFrames[0][sequence_length*(i):sequence_length*(i+1)]
+                    tempPositiveFramesRNNInput = positiveFramesRNNInput
+                    positiveFramesRemaining -= 16
+
+                if negativeFramesRemaining < 16:
+                    negativeFramesRNNInput = tempNegativeFramesRNNInput
+                else:
+                    negativeFramesRNNInput = negativeFrames[0][sequence_length*(i):sequence_length*(i+1)]
+                    tempNegativeFramesRNNInput = negativeFramesRNNInput
+                    negativeFramesRemaining -= 16
+
+                if i == quotient:
+                    anchorFramesRNNInput = anchorFrames[0][actualFramesCount - sequence_length:actualFramesCount]
+                    positiveFramesRNNInput = positiveFrames[0][positiveFramesCount - sequence_length:positiveFramesCount]
+                    negativeFramesRNNInput = negativeFrames[0][negativeFramesCount - sequence_length:negativeFramesCount]
+
+                if torch.cuda.is_available():
+                    anchorFramesRNNInput = anchorFramesRNNInput.cuda()
+                    positiveFramesRNNInput = positiveFramesRNNInput.cuda()
+                    negativeFramesRNNInput = negativeFramesRNNInput.cuda()
+
+                H, Hp, Hn = tripletRNNOP(anchorFramesRNNInput.view(batch_size, sequence_length, input_size), positiveFramesRNNInput.view(batch_size, sequence_length, input_size), negativeFramesRNNInput.view(batch_size, sequence_length, input_size))
+                print H, Hp, Hn
+
+                lossOP = torch.zeros(1)
+                if torch.cuda.is_available():
+                    lossOP = loss.cuda()
+                lossOP = Variable(lossOP)
+                zero = torch.zeros(1)
+                if torch.cuda.is_available():
+                    zero = zero.cuda()
+                zero = Variable(zero)
+                lossOP += torch.sum(torch.max(zero, alpha - cos(H[0], Hp[0]) + cos(H[0], Hn[0])))
+                lossOP /= sequence_length
+                # print lossOP
+                optimizerOP.zero_grad()
+                lossOP.backward()
+                optimizerOP.step()
+
+torch.save(tripletRNNRGB.state_dict(), '/Users/prateek/8thSem/rl-person-verification/runs/model_run_rgb.pt')
+torch.save(tripletRNNOP.state_dict(), '/Users/prateek/8thSem/rl-person-verification/runs/model_run_op.pt')
