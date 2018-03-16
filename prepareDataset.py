@@ -44,7 +44,7 @@ def transformDataset(dataset):
     return tempPerson
 
 def myPCA(X, reducedDimension):
-    startTime = time.time()
+    # startTime = time.time()
     X = X.numpy()
     X = X.T
     print("PCA Running, Data format should have shape dimension*numSamples")
@@ -70,8 +70,8 @@ def myPCA(X, reducedDimension):
     newX = np.linalg.pinv(matrix_w.T).dot(Y)
     MSE = mean_squared_error(X, newX)
     # print("MSE = {}".format(MSE))
-    endTime = time.time()
-    print("Time taken by PCA",(endTime-startTime))
+    # endTime = time.time()
+    # print("Time taken by PCA",(endTime-startTime))
     return torch.from_numpy(Y.T)
 
 def generateTriplets(nTotalPersons, testTrainSplit):
@@ -106,6 +106,7 @@ def generateTriplets(nTotalPersons, testTrainSplit):
     return trainTriplets, testTriplets
 
 def loadImage(filename):
+    print filename
     img = Image.open(filename)
     img = img.convert('YCbCr')
     imgY, imgU, imgV = img.split()
@@ -126,11 +127,12 @@ def loadImage(filename):
     imgV = transforms.ToPILImage()(imgV)
     img = transforms.Pad((80, 48), fill=0)(img)
     img = transforms.ToTensor()(img)
-    img = img.unsqueeze_(0)
-    if torch.cuda.is_available():
-        img = img.cuda()
-    img = Variable(img)
-    return buildModel.cnn(img)
+    return img
+    # img = img.unsqueeze_(0)
+    # if torch.cuda.is_available():
+    #     img = img.cuda()
+    # img = Variable(img)
+    # return buildModel.cnn(img)
 
 def loadSequenceImages(cameraDir,filesList, actualFrameCount):
     print("Files to be loaded", cameraDir, filesList[0:actualFrameCount])

@@ -17,7 +17,7 @@ import torchvision.transforms as T
 
 torch.manual_seed(7)
 
-testTrainSplit = 0.8
+testTrainSplit = 0.75
 BATCH_SIZE = 8
 GAMMA = 0.98
 EPS_START = 1.0
@@ -36,8 +36,6 @@ episodeDurations = []
 seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 trainTriplets, testTriplets = prepareDataset.generateTriplets(len(personFramesDict), testTrainSplit)
-# trainTriplets, testTriplets = utilsRL.modifyTriplets(trainTriplets, testTriplets, personIdxDict)
-# print trainTriplets, testTriplets
 
 def optimizeModel(model):
     print("Optimizing Model Begin")

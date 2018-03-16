@@ -53,13 +53,17 @@ def randomSplit():
 def transposeList(l):
     return np.array(l).T.tolist()
 
-def principal_component():
-    X = np.random.random((10,4096))
-    print X
-    pca = PCA(n_components=512)
-    pca.fit(X)
-    print pca.components_.shape
-    reduced = pca.transform(X)
+def principal_component(X):
+    X = X.data
+    X = X.numpy()
+    X = X.T
+    # X = np.random.random((250,4096))
+    pca = PCA(n_components=64)
+    # print X.shape
+    Y = pca.fit_transform(X)
+    # print reduced.shape
+    return torch.from_numpy(Y.T)
+
 
 def getSize():
     x = torch.zeros(2,3,4)
@@ -102,4 +106,4 @@ def modelParameters():
     for name, param in model.state_dict().iteritems():
         print name, param.size()
 
-modelParameters()
+principal_component()

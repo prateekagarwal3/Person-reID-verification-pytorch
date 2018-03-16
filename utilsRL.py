@@ -307,7 +307,6 @@ def performAction(state, action, threshold, pid, framesDropInfo):
     nextState = state
     for i in range(0, 5):
         nextState[action[0]][i + action[1]] = 0
-    # done = 1 if sum(state['A']) <= threshold['A'] and sum(state['A']) <= threshold['A'] and sum(state['C']) <= threshold['C'] else 0
     done = 1 if checkTerminalState(state, threshold, pid, framesDropInfo) else 0
     reward = findReward(state, nextState, pid)
     if done:

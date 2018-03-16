@@ -15,7 +15,7 @@ import torchvision.transforms as transforms
 def cnn(img):
     alexnet = models.alexnet(pretrained=True)
     if torch.cuda.is_available():
-        alexnet = alexnet.is_available()
+        alexnet = alexnet.cuda()
     mod = list(alexnet.classifier.children())
     new_classifier = torch.nn.Sequential(*mod[:2])
     alexnet.classifier = new_classifier

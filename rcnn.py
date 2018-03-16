@@ -15,8 +15,8 @@ import torchvision.transforms as transforms
 torch.manual_seed(7)
 
 sequence_length = 16
-input_size = 128
-hidden_size = 128
+input_size = 64
+hidden_size = 64
 num_layers = 2
 learning_rate = 0.001
 momentum = 0
@@ -32,6 +32,7 @@ seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
 seqRootOP = '/Users/prateek/8thSem/dataset/iLIDS-VID-OF-HVP/sequences'
 
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
+personNoDict = dict([v,k] for k,v in personIdxDict.items())
 nTotalPersons = len(personFramesDict)
 trainTriplets, testTriplets = prepareDataset.generateTriplets(nTotalPersons, testTrainSplit)
 
@@ -71,13 +72,13 @@ torch.backends.cudnn.benchmark = True
 count = 1
 tripletRNNRGB.train()
 for epoch in range(num_epochs):
-    # print("Epoch Loop Running", epoch)
+    print("Epoch Loop Running", epoch)
     for triplet in trainTriplets:
-        triplet = [15,15,213]
-        count += 1
-        if(count > 2):
-            break
-        # print("Triplet being used : ", triplet)
+        # triplet = [15,15,213]
+        # count += 1
+        # if(count > 2):
+            # break
+        print("Triplet being used : ", triplet)
         for cam in range(1,2):
             #print("Cam Loop Running")
             anchor = personIdxDict[triplet[0]]
@@ -93,12 +94,12 @@ for epoch in range(num_epochs):
             actualFramesCount = max(anchorFramesCount, positiveFramesCount, negativeFramesCount)
             # print(anchorFramesCount, positiveFramesCount, negativeFramesCount)
 
-            anchorFrames = torch.randn(1, anchorFramesCount, 128)
-            positiveFrames = torch.randn(1, positiveFramesCount, 128)
-            negativeFrames = torch.randn(1, negativeFramesCount, 128)
-            # anchorFrames = prepareDataset.getPersonFrames(seqRootRGB, anchor, cam, anchorFramesCount)
-            # positiveFrames = prepareDataset.getPersonFrames(seqRootRGB, positive, 3-cam, positiveFramesCount)
-            # negativeFrames = prepareDataset.getPersonFrames(seqRootRGB, negative, 3-cam, negativeFramesCount)
+            # anchorFrames = torch.randn(1, anchorFramesCount, 64)
+            # positiveFrames = torch.randn(1, positiveFramesCount, 64)
+            # negativeFrames = torch.randn(1, negativeFramesCount, 64)
+            anchorFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam1/' + str(triplet[0])+'.pt')
+            positiveFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam2/' + str(triplet[1])+'.pt')
+            negativeFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam2/' + str(triplet[2])+'.pt')
 
             quotient = actualFramesCount / sequence_length
             remainder = actualFramesCount % sequence_length
@@ -145,6 +146,10 @@ for epoch in range(num_epochs):
                     positiveFramesRNNInput = positiveFramesRNNInput.cuda()
                     negativeFramesRNNInput = negativeFramesRNNInput.cuda()
 
+                print anchorFramesRNNInput.size()
+                print positiveFramesRNNInput.size()
+                print negativeFramesRNNInput.size()
+
                 H, Hp, Hn = tripletRNNRGB(anchorFramesRNNInput.view(batch_size, sequence_length, input_size), positiveFramesRNNInput.view(batch_size, sequence_length, input_size), negativeFramesRNNInput.view(batch_size, sequence_length, input_size))
                 print H, Hp, Hn
 
@@ -163,12 +168,12 @@ for epoch in range(num_epochs):
                 loss.backward()
                 optimizerRGB.step()
 
-            anchorFrames = torch.randn(1, anchorFramesCount, 128)
-            positiveFrames = torch.randn(1, positiveFramesCount, 128)
-            negativeFrames = torch.randn(1, negativeFramesCount, 128)
-            # anchorFrames = prepareDataset.getPersonFrames(seqRootOP, anchor, cam, anchorFramesCount)
-            # positiveFrames = prepareDataset.getPersonFrames(seqRootOP, positive, 3-cam, positiveFramesCount)
-            # negativeFrames = prepareDataset.getPersonFrames(seqRootOP, negative, 3-cam, negativeFramesCount)
+            # anchorFrames = torch.randn(1, anchorFramesCount, 64)
+            # positiveFrames = torch.randn(1, positiveFramesCount, 64)
+            # negativeFrames = torch.randn(1, negativeFramesCount, 64)
+            anchorFrames = prepareDataset.getPersonFrames(seqRootOP, anchor, cam, anchorFramesCount)
+            positiveFrames = prepareDataset.getPersonFrames(seqRootOP, positive, 3-cam, positiveFramesCount)
+            negativeFrames = prepareDataset.getPersonFrames(seqRootOP, negative, 3-cam, negativeFramesCount)
 
             quotient = actualFramesCount / sequence_length
             remainder = actualFramesCount % sequence_length
@@ -220,7 +225,7 @@ for epoch in range(num_epochs):
 
                 lossOP = torch.zeros(1)
                 if torch.cuda.is_available():
-                    lossOP = loss.cuda()
+                    lossOP = lossOP.cuda()
                 lossOP = Variable(lossOP)
                 zero = torch.zeros(1)
                 if torch.cuda.is_available():
@@ -235,3 +240,4 @@ for epoch in range(num_epochs):
 
 torch.save(tripletRNNRGB.state_dict(), '/Users/prateek/8thSem/rl-person-verification/runs/model_run_rgb.pt')
 torch.save(tripletRNNOP.state_dict(), '/Users/prateek/8thSem/rl-person-verification/runs/model_run_op.pt')
+'''
