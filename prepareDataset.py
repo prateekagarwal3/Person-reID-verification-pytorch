@@ -77,6 +77,7 @@ def myPCA(X, reducedDimension):
 def generateTriplets(nTotalPersons, testTrainSplit):
     splitPoint = int(nTotalPersons * testTrainSplit)
     inds = torch.randperm(nTotalPersons)
+    inds += 1
     trainInds = inds[0:splitPoint]
     testInds = inds[(splitPoint):nTotalPersons+1]
     trainTriplets = []

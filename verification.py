@@ -29,7 +29,10 @@ if torch.cuda.is_available():
     model = model.cuda()
 
 model.load_state_dict(torch.load('mytraining.pt'))
+testTriplets = torch.load('testTriplets.pt')
+testPairs = utilsVer.generatePairs(testTriplets)
 
+'''
 for pair in trainPairs:
     if pair[0] == pair[1]:
         label = 1
@@ -50,3 +53,4 @@ for pair in trainPairs:
         bestAction = model(*input).max(0)[1].data
 
         nextState, done = utilsVer.performAction(state, bestAction, threshold, pid, framesDropInfo)
+'''

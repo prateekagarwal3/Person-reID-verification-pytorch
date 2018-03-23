@@ -23,6 +23,8 @@ seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 personNoDict = dict([v,k] for k,v in personIdxDict.items())
 
+def generatePairs(testTriplets):
+    
 def checkTerminalState(state, threshold, pid, framesDropInfo):
     doneT = 1 if sum(state['A']) <= threshold['A'] or sum(state['B']) <= threshold['B'] or sum(state['C']) <= threshold['C'] else 0
     return doneR

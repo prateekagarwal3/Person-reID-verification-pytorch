@@ -6,6 +6,7 @@ import random
 from itertools import count
 from collections import namedtuple
 
+import time
 import torch
 from PIL import Image
 import torch.nn as nn
@@ -16,11 +17,14 @@ from torch.autograd import Variable
 import torchvision.transforms as transforms
 
 frameDropThreshold = 0.625
-PRELU_WEIGHT = Variable(torch.FloatTensor([0.25]))
+PRELU_WEIGHT = torch.FloatTensor([0.25])
+if torch.cuda.is_available():
+    PRELU_WEIGHT = PRELU_WEIGHT.cuda()
+PRELU_WEIGHT = Variable(PRELU_WEIGHT)
 
 Transition = namedtuple('Transition', ('pid', 'framesCount', 'state', 'action', 'nextState', 'reward', 'framesDropInfo'))
 
-seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
+seqRootRGB = '/data/home/prateeka/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 personNoDict = dict([v,k] for k,v in personIdxDict.items())
 # print personIdxDict
@@ -48,40 +52,44 @@ class ReplayMemory(object):
         print self.memory
 
 def getTripletInfo(triplet, personIdxDict, personFramesDict):
-    pid = {}
-    pid['A'] = personIdxDict[triplet[0]]
-    pid['B'] = personIdxDict[triplet[1]]
-    pid['C'] = personIdxDict[triplet[2]]
-    framesCount = {}
-    framesCount['A'] = personFramesDict[pid['A']][0]
-    framesCount['B'] = personFramesDict[pid['B']][1]
-    framesCount['C'] = personFramesDict[pid['C']][1]
-    threshold = {}
-    threshold['A'] = int(framesCount['A'] * frameDropThreshold)
-    threshold['B'] = int(framesCount['B'] * frameDropThreshold)
-    threshold['C'] = int(framesCount['C'] * frameDropThreshold)
-    initialState = {}
-    initialState['A'] = [[1]*framesCount['A']][0]
-    initialState['B'] = [[1]*framesCount['B']][0]
-    initialState['C'] = [[1]*framesCount['C']][0]
-    # print len(initialState['A']), len(initialState['B']), len(initialState['C'])
-    framesDropInfo = {}
-    framesDropInfo['A'] = [i for i in range(0, framesCount['A']-4)]
-    framesDropInfo['B'] = [i for i in range(0, framesCount['B']-4)]
-    framesDropInfo['C'] = [i for i in range(0, framesCount['C']-4)]
+    maxFrameCount = 192
+    pid = torch.IntTensor([triplet[0], triplet[1], triplet[2]])
+    fc1 = personFramesDict[personIdxDict[triplet[0]]][0]
+    fc2 = personFramesDict[personIdxDict[triplet[1]]][1]
+    fc3 = personFramesDict[personIdxDict[triplet[2]]][1]
+    # print fc1, fc2, fc3
+    fcMax = max(fc1, fc2, fc3)
+    framesCount = torch.IntTensor([fc1, fc2, fc3])
+    threshold = torch.IntTensor([int(fc1*frameDropThreshold), int(fc2*frameDropThreshold), int(fc3*frameDropThreshold)])
+    initialState = torch.ones(3, maxFrameCount)
+    initialState[0, fc1:maxFrameCount] = 0
+    initialState[1, fc2:maxFrameCount] = 0
+    initialState[2, fc3:maxFrameCount] = 0
+    tempDict = {}
+    tempDict['A'] = [i for i in range(0, fc1-4)]
+    tempDict['B'] = [i for i in range(0, fc2-4)]
+    tempDict['C'] = [i for i in range(0, fc3-4)]
+    framesDropInfo = torch.IntTensor(3, maxFrameCount)
+    framesDropInfo[0, 0:fc1-4] = torch.IntTensor(tempDict['A'])
+    framesDropInfo[0, fc1-4:maxFrameCount] = -1
+    framesDropInfo[1, 0:fc2-4] = torch.IntTensor(tempDict['B'])
+    framesDropInfo[1, fc2-4:maxFrameCount] = -1
+    framesDropInfo[2, 0:fc3-4] = torch.IntTensor(tempDict['C'])
+    framesDropInfo[2, fc3-4:maxFrameCount] = -1
 
-    return framesDropInfo, threshold, initialState
+    if torch.cuda.is_available():
+        pid = pid.cuda()
+        framesDropInfo = framesDropInfo.cuda()
+        framesCount = framesCount.cuda()
+        threshold = threshold.cuda()
+        initialState = initialState.cuda()
+    return pid, framesDropInfo, framesCount, threshold, initialState
 
-def modifyTriplets(trainTriplets, testTriplets, personIdxDict):
-    for i in range(len(trainTriplets)):
-        trainTriplets[i][0] = personIdxDict[trainTriplets[i][0]]
-        trainTriplets[i][1] = personIdxDict[trainTriplets[i][1]]
-        trainTriplets[i][2] = personIdxDict[trainTriplets[i][2]]
-    for i in range(len(testTriplets)):
-        testTriplets[i][0] = personIdxDict[testTriplets[i][0]]
-        testTriplets[i][1] = personIdxDict[testTriplets[i][1]]
-        testTriplets[i][2] = personIdxDict[testTriplets[i][2]]
-    return trainTriplets, testTriplets
+def saveTestTriplet(testTriplets):
+    triplets = torch.IntTensor(75, 3)
+    for i in range(75):
+        triplets[i] = torch.IntTensor(testTriplets[i])
+    torch.save(triplets, "testTriplets.pt")
 
 def loadImage(filename):
     img = Image.open(filename)
@@ -126,249 +134,97 @@ def loadDroppedFrames(rootDir, framesDropIndex):
 def generateFramesBatch(pid_batch, action_batch):
     frames_batch = torch.Tensor(pid_batch.size(0), 15, 128, 64)
     for i in range(0, pid_batch.size(0)):
-        rootDir = "/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/"
+        rootDir = "/data/home/prateeka/dataset/iLIDS-VID/i-LIDS-VID/sequences/"
         camDir = "cam"
         pidDir = ""
-        # print action_batch
-        if action_batch[i][0] == 0:
+        # print pid_batch
+        if int(action_batch[i][0]) is 0:
             camDir = camDir + "1"
             pidDir = personIdxDict[pid_batch[i][0].data[0]]
-        elif action_batch[i][0] == 1:
+        elif int(action_batch[i][0]) is 1:
             camDir = camDir + "2"
             pidDir = personIdxDict[pid_batch[i][1].data[0]]
-        elif action_batch[i][0] == 2:
+        elif int(action_batch[i][0]) is 2:
             camDir = camDir + "2"
             pidDir = personIdxDict[pid_batch[i][2].data[0]]
 
         rootDir = os.path.join(rootDir, camDir, pidDir)
         framesDropIndex = action_batch[i][1]
         frames_batch[i] = loadDroppedFrames(rootDir, framesDropIndex)
-
+    if torch.cuda.is_available():
+        frames_batch = frames_batch.cuda()
     return frames_batch
 
-def featureExtractor(frames, pid):
-    a = torch.randn(len(frames['A']), 256)
-    b = torch.randn(len(frames['B']), 256)
-    c = torch.randn(len(frames['C']), 256)
-    return a, b, c
+def findSimilarity(weights, pid, framesCount):
 
-def dictToTensor(pid, state, action, nextState, framesDropInfo):
-    framesCountA = len(state['A'])
-    framesCountB = len(state['B'])
-    framesCountC = len(state['C'])
-    framesCount = torch.IntTensor([framesCountA, framesCountB, framesCountC])
-    # print framesCount
+    pooledFeatureA = torch.zeros(1, 128)
+    pooledFeatureB = torch.zeros(1, 128)
+    pooledFeatureC = torch.zeros(1, 128)
+    frameFeaturesA = torch.load('/data/home/prateeka/temporalRepresentation/cam1/' + str(pid[0])+'.pt')
+    frameFeaturesB = torch.load('/data/home/prateeka/temporalRepresentation/cam2/' + str(pid[1])+'.pt')
+    frameFeaturesC = torch.load('/data/home/prateeka/temporalRepresentation/cam2/' + str(pid[2])+'.pt')
 
-    maxFramesCount = max(framesCountA, framesCountB, framesCountC)
-    stateTorch = torch.ByteTensor(3, maxFramesCount)
-    stateTemp = copy.deepcopy(state)
-    for channel in ['A', 'B', 'C ']:
-        channel = channel[0]
-        if len(stateTemp[channel]) < maxFramesCount:
-            for i in range(maxFramesCount - len(stateTemp[channel])):
-                stateTemp[channel].append(0)
+    for i in range(framesCount[0]):
+        pooledFeatureA += frameFeaturesA[i] * weights[0][i]
+    pooledFeatureA /= framesCount[0]
 
-    stateTorch[0] = torch.IntTensor(stateTemp['A'])
-    stateTorch[1] = torch.IntTensor(stateTemp['B'])
-    stateTorch[2] = torch.IntTensor(stateTemp['C'])
+    for i in range(framesCount[1]):
+        pooledFeatureB += frameFeaturesB[i] * weights[1][i]
+    pooledFeatureB /= framesCount[1]
 
-    if nextState != None:
-        nextStateTemp = copy.deepcopy(nextState)
-        nextStateTorch = torch.ByteTensor(3, maxFramesCount)
-
-        for channel in ['A', 'B', 'C ']:
-            channel = channel[0]
-            if len(nextStateTemp[channel]) < maxFramesCount:
-                for i in range(maxFramesCount - len(nextStateTemp[channel])):
-                    nextStateTemp[channel].append(0)
-
-        nextStateTorch[0] = torch.IntTensor(nextStateTemp['A'])
-        nextStateTorch[1] = torch.IntTensor(nextStateTemp['B'])
-        nextStateTorch[2] = torch.IntTensor(nextStateTemp['C'])
-        nextStateTorch = nextStateTorch.unsqueeze(0)
-    else:
-        nextStateTorch = None
-
-    maxFramesDropInfo = max(len(framesDropInfo['A']), len(framesDropInfo['B']), len(framesDropInfo['C']))
-    framesDropInfoTorch = torch.IntTensor(3, maxFramesDropInfo)
-
-    for channel in ['A', 'B', 'C ']:
-        channel = channel[0]
-        if len(framesDropInfo[channel]) < maxFramesDropInfo:
-            for i in range(maxFramesDropInfo - len(framesDropInfo[channel])):
-                framesDropInfo[channel].append(0)
-
-    framesDropInfoTorch[0] = torch.IntTensor(framesDropInfo['A'])
-    framesDropInfoTorch[1] = torch.IntTensor(framesDropInfo['B'])
-    framesDropInfoTorch[2] = torch.IntTensor(framesDropInfo['C'])
-
-    if action[0] == 'A':
-        actionTorch = torch.IntTensor([0, action[1]])
-    if action[0] == 'B':
-        actionTorch = torch.IntTensor([1, action[1]])
-    if action[0] == 'C':
-        actionTorch = torch.IntTensor([2, action[1]])
-    # print("torch", actionTorch)
-
-    pidTorch = torch.IntTensor([personNoDict[pid['A']], personNoDict[pid['B']], personNoDict[pid['C']]])
-
-    return pidTorch.unsqueeze(0), framesCount.unsqueeze(0), stateTorch.unsqueeze(0), actionTorch.unsqueeze(0), nextStateTorch, framesDropInfoTorch.unsqueeze(0)
-
-def findSimilarity(weights, pid):
-    weightsA = weights['A']
-    weightsB = weights['B']
-    weightsC = weights['C']
-    framesCountA = len(weightsA)
-    framesCountB = len(weightsB)
-    framesCountC = len(weightsC)
-
-    pooledFeatureA = torch.zeros(1, 256)
-    pooledFeatureB = torch.zeros(1, 256)
-    pooledFeatureC = torch.zeros(1, 256)
-    frameFeaturesA, frameFeaturesB, frameFeaturesC = featureExtractor(weights, pid)
-
-    for i in range(framesCountA):
-        pooledFeatureA += frameFeaturesA[i] * weightsA[i]
-    pooledFeatureA /= framesCountA
-
-    for i in range(framesCountB):
-        pooledFeatureB += frameFeaturesB[i] * weightsB[i]
-    pooledFeatureA /= framesCountA
-
-    for i in range(framesCountC):
-        pooledFeatureC += frameFeaturesC[i] * weightsC[i]
-    pooledFeatureC /= framesCountC
-    # print pooledFeatureA, pooledFeatureB, pooledFeatureC
+    for i in range(framesCount[2]):
+        pooledFeatureC += frameFeaturesC[i] * weights[2][i]
+    pooledFeatureC /= framesCount[2]
     cos = nn.CosineSimilarity(dim=1, eps=1e-6)
     similarityAB = cos(pooledFeatureA, pooledFeatureB)
     similarityAC = cos(pooledFeatureA, pooledFeatureC)
     return (similarityAB, similarityAC)
 
-def findReward(weights, newWeights, pid):
-    initialSimilarityAB, initialSimilarityAC = findSimilarity(weights, pid)
+def findReward(weights, newWeights, pid, framesCount):
+    initialSimilarityAB, initialSimilarityAC = findSimilarity(weights, pid, framesCount)
     # print initialSimilarityAB, initialSimilarityAC
-    newSimilarityAB, newSimilarityAC = findSimilarity(newWeights, pid)
+    newSimilarityAB, newSimilarityAC = findSimilarity(newWeights, pid, framesCount)
     reward = (newSimilarityAB - initialSimilarityAB) - (newSimilarityAC - initialSimilarityAC)
     return reward
 
 def getframeDropIndex(framesDropInfo, channel):
-    index = random.sample(framesDropInfo[channel], 1)
-    index = index[0]
-    # print("Removing at index ", index)
-    for i in range(0,5):
-        if index + i in framesDropInfo[channel]:
-            framesDropInfo[channel].remove(index + i)
+    a = framesDropInfo[channel]
+    while True:
+        # print a
+        x = random.sample(a, 1)[0]
+        if x == -1:
+            x = random.sample(a, 1)[0]
+        if x != -1:
+            return x
 
-    for i in range(1,5):
-        if index - i in framesDropInfo[channel]:
-            framesDropInfo[channel].remove(index-i)
-
-    return index, framesDropInfo
-
-def getAction(state, framesDropInfo):
-    # print('Running getAction')
-    channels = ['A', 'B', 'C']
-    channel = random.sample(channels, 1)
-    channel = channel[0]
-    action = []
-    action.append(channel)
-    frameIdx, framesDropInfo = getframeDropIndex(framesDropInfo, channel)
-    action.append(frameIdx)
-    return action, framesDropInfo
-
-def checkTerminalState(state, threshold, pid, framesDropInfo):
-    doneT = 1 if sum(state['A']) <= threshold['A'] or sum(state['B']) <= threshold['B'] or sum(state['C']) <= threshold['C'] else 0
-    doneR = 1
-    return doneT
-
-    for channel in ['A', 'B', 'C']:
-        for index in framesDropInfo[channel]:
-            tempS = copy.deepcopy(state)
-            tempF = copy.deepcopy(framesDropInfo)
-            nextState = copy.deepcopy(state)
-            for i in range(0, 5):
-                if i + index < len(state[channel]):
-                    nextState[channel][i + index] = 0
-            for i in range(0,5):
-                if index+i in tempF[channel]:
-                        tempF[channel].remove(index+i)
-            for i in range(1,5):
-                if index - i in tempF[channel]:
-                    tempF[channel].remove(index-i)
-
-            reward = findReward(state, nextState, pid)
-            if reward >= 0:
-                doneR = 0
-                return doneR and doneT
-
-    return doneR and doneT
-
-def performAction(state, action, threshold, pid, framesDropInfo):
-    nextState = state
-    for i in range(0, 5):
-        nextState[action[0]][i + action[1]] = 0
-    done = 1 if checkTerminalState(state, threshold, pid, framesDropInfo) else 0
-    reward = findReward(state, nextState, pid)
-    if done:
-        nextState['A'][0] = -1
-        nextState['A'][1] = -1
-        nextState['B'][0] = -1
-        nextState['B'][1] = -1
-        nextState['C'][0] = -1
-        nextState['C'][1] = -1
-
-    return nextState, reward, done
-
-def tensorToDict(framesCount, state, framesDropInfo):
-    stateDict = {}
-    for i in range(3):
-        stateDict[chr(i+65)] = []
-        for j in range(int(framesCount[i])):
-            stateDict[chr(i+65)].append(state[i][j].data[0])
-    # print stateDict
-
-    framesDropInfoDict = {}
-    for i in range(0, 3):
-        count = 0
-        for j in range(framesDropInfo[i].size(0)-1, -1, -1):
-            count += 1
-            if(framesDropInfo[i][j] > 0):
-                break
-        count = framesDropInfo[i].size(0) - count
-        framesDropInfoDict[chr(i+65)] = []
-        for j in range(count):
-            framesDropInfoDict[chr(i+65)].append(framesDropInfo[i][j].data[0])
-    # print framesDropInfoDict
-    return stateDict, framesDropInfoDict
-
-def generateAllAction(pid, framesCount, state, framesDropInfo):
-
-    # print pid, framesCount, state, framesDropInfo
+def genAllAction(pid, framesCount, state, framesDropInfo):
     action_batch = torch.Tensor(400, 2)
     numActions = 0
-    stateDict, framesDropInfoDict = tensorToDict(framesCount, state, framesDropInfo)
-    # print stateDict, framesDropInfoDict
 
-    for channel in ['A', 'B', 'C']:
-        # print "check"
-        for index in framesDropInfoDict[channel]:
-            tIndex = index
-            action_batch[numActions] = torch.IntTensor([ord(channel)-65, tIndex])
+    for c in range(0, 3):
+        for index in framesDropInfo[c]:
+            # print index
+            if int(index) is -1:
+                continue
+            # if index == 0:
+                # print("Channel for zero index" , c)
+            action_batch[numActions] = torch.IntTensor([c, index.data[0]])
             numActions += 1
-            # print numActions
-            tempS = copy.deepcopy(stateDict)
-            tempF = copy.deepcopy(framesDropInfoDict)
-            # print tempF
-            nextState = copy.deepcopy(stateDict)
+            tempS = state
+            tempF = framesDropInfo.data
+            nextState = state.clone()
             for i in range(0, 5):
-                if i + index < len(stateDict[channel]):
-                    nextState[channel][i + tIndex] = 0
+                if i + index.data[0] < framesCount[c].data[0]:
+                    temp = (i + index.data[0])
+                    nextState[c, temp] = 0
             for i in range(0,5):
-                if tIndex+i in tempF[channel]:
-                        tempF[channel].remove(tIndex+i)
+                if index.data[0]+i in tempF[c]:
+                    temp = (index.data[0]+i)
+                    tempF[c, temp] = -1
             for i in range(1,5):
-                if index - i in tempF[channel]:
-                    tempF[channel].remove(tIndex-i)
+                if index.data[0] - i in tempF[c]:
+                    temp = (index.data[0]-i)
+                    tempF[c, temp] = -1
 
     action_batch = action_batch[0:numActions]
     pid_batch = torch.Tensor(numActions, 3)
@@ -378,21 +234,101 @@ def generateAllAction(pid, framesCount, state, framesDropInfo):
         pid_batch[i] = pid.data
         framesCount_batch[i] = framesCount.data
         state_batch[i] = state.data
+    if torch.cuda.is_available():
+        pid_batch = pid_batch.cuda()
+        framesCount_batch = framesCount_batch.cuda()
+        state_batch = state_batch.cuda()
+        action_batch = action_batch.cuda()
+    return pid_batch, framesCount_batch, state_batch, action_batch
 
-    return Variable(pid_batch), Variable(framesCount_batch), Variable(state_batch), Variable(action_batch)
+def getAction(pid, framesCount, state, framesDropInfo, model):
+    if random.random() < 0.1:
+        # print("Runnning get action")
+        channel = random.randint(0, 2)
+        action = torch.IntTensor(2)
+        action[0] = channel
+        action[1] = getframeDropIndex(framesDropInfo, channel)
+
+        return action
+    else:
+        pid_batch, framesCount_batch, state_batch, action_batch = genAllAction(Variable(pid), Variable(framesCount), Variable(state), Variable(framesDropInfo))
+        modelTic = time.time()
+        bestActionIndex = model(Variable(pid_batch), Variable(framesCount_batch), Variable(state_batch), Variable(action_batch)).max(0)[1].data
+        modelToc = time.time()
+        print("Time taken in model action finder: {} seconds".format(modelToc-modelTic))
+
+        # bestActionIndex.volatile = False
+        return torch.IntTensor([int(action_batch[bestActionIndex][0][0]), int(action_batch[bestActionIndex][0][1])])
+
+def checkTerminalState(state, threshold, pid, framesDropInfo, framesCount):
+    # print(sum(state[0]), threshold[0])
+    # print(sum(state[1]), threshold[1])
+    # print(sum(state[2]), threshold[2])
+
+    doneT = 1 if sum(state[0]) <= threshold[0] or sum(state[1]) <= threshold[1] or sum(state[2]) <= threshold[2] else 0
+    # print("gfsgfsgsg", doneT)
+
+    doneR = 1
+    for c in range(0, 3):
+        for index in framesDropInfo[c]:
+            if index == -1:
+                continue
+            tempF = framesDropInfo.clone()
+            nextState = state.clone()
+            for i in range(0, 5):
+                if i + index < framesCount[c]:
+                    nextState[c, (i + index)] = 0
+            for i in range(0,5):
+                if index+i in tempF[c]:
+                    tempF[c, (index+i)] = -1
+            for i in range(1,5):
+                if index - i in tempF[c]:
+                    tempF[c, (index-i)] = -1
+            reward = findReward(state, nextState, pid, framesCount)
+            if reward[0] >= 0:
+                doneR = 0
+                return doneR or doneT
+    return doneR or doneT
+
+def performAction(state, action, threshold, pid, framesDropInfo, framesCount):
+    nextState = state.clone()
+    for i in range(0, 5):
+        nextState[action[0], (i + action[1])] = 0
+    for i in range(0,5):
+        if action[1]+i in framesDropInfo[action[0]]:
+            framesDropInfo[action[0], (action[1]+i)] = -1
+    for i in range(1,5):
+        if action[1] - i in framesDropInfo[action[0]]:
+            framesDropInfo[action[0], (action[1]-i)] = -1
+
+    done = 1 if checkTerminalState(state, threshold, pid, framesDropInfo, framesCount) else 0
+    reward = findReward(state, nextState, pid, framesCount)
+    if done:
+        nextState[0][0] = -1
+        nextState[0][1] = -1
+        nextState[1][0] = -1
+        nextState[1][1] = -1
+        nextState[2][0] = -1
+        nextState[2][1] = -1
+    if torch.cuda.is_available():
+        nextState = nextState.cuda()
+    return nextState, framesDropInfo, reward, done
 
 def getOrderStats(pid, framesCount, state, action):
-    # print("fc", framesCount[action[0][0]])
     channel = int(action[0][0])
-    personNo = pid[0][channel]
+    personNo = int(pid[0][channel])
+    if int(action[0][0] == 0):
+        cam = 1
+    else:
+        cam = 2
     # print personNo
     personId = personIdxDict[personNo]
-    frameFeatures = torch.randn(int(framesCount[channel][0]), 128)
+    frameFeatures = torch.load('/data/home/prateeka/temporalRepresentation/cam' + str(cam) + '/' + str(personNo)+'.pt')
     poolFeatures = torch.zeros(1, 128)
-    for i in range(int(framesCount[channel][0])):
+    for i in range(int(framesCount[0][channel])):
         poolFeatures += state[0][channel][i] * frameFeatures[i]
     poolDroppedFeatures = torch.zeros(1, 128)
-    for i in range(int(action[0][1]), 5):
+    for i in range(int(action[0][1]), int(action[0][1])+5):
         poolDroppedFeatures += frameFeatures[i]
     poolDroppedFeatures /= 5
     poolFeatures -= poolDroppedFeatures
@@ -401,14 +337,18 @@ def getOrderStats(pid, framesCount, state, action):
 
     for i in range(1, pid.size(0)):
         channel = int(action[i][0])
-        personNo = pid[i][channel]
+        personNo = int(pid[i][channel])
+        if int(action[i][0]) == 0:
+            cam = 1
+        else:
+            cam = 2
         personId = personIdxDict[personNo]
-        frameFeatures = torch.randn(int(framesCount[channel][0]), 128)
+        frameFeatures = torch.load('/data/home/prateeka/temporalRepresentation/cam' + str(cam) + '/' + str(personNo)+'.pt')
         poolFeatures = torch.zeros(1, 128)
-        for j in range(int(framesCount[channel][0])):
+        for j in range(int(framesCount[i][channel])):
             poolFeatures += state[i][channel][j] * frameFeatures[j]
         poolDroppedFeatures = torch.zeros(1, 128)
-        for j in range(int(action[i][1]), 5):
+        for j in range(int(action[i][1]), int(action[i][1])+5):
             poolDroppedFeatures += frameFeatures[j]
         poolDroppedFeatures /= 5
         poolFeatures -= poolDroppedFeatures
@@ -417,6 +357,9 @@ def getOrderStats(pid, framesCount, state, action):
         v1 = torch.cat((v1, x), dim=0)
         v2 = torch.cat((v2, y), dim=0)
 
+    if torch.cuda.is_available():
+        v1 = v1.cuda()
+        v2 = v2.cuda()
     return v1, v2
 
 class DQN(nn.Module):
@@ -435,7 +378,11 @@ class DQN(nn.Module):
         # print action
         # print("pid", pid.size())
         x = generateFramesBatch(pid, action)
+        if torch.cuda.is_available():
+            # print "in Loop"
+            x = x.cuda()
         x = Variable(x)
+        # print x
         x = F.prelu(self.mp(self.conv1(x)), weight=PRELU_WEIGHT)
         x = F.prelu(self.mp(self.conv2(x)), weight=PRELU_WEIGHT)
         x = F.prelu(self.mp(self.conv3(x)), weight=PRELU_WEIGHT)
