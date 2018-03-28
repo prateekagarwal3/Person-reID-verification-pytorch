@@ -1,6 +1,7 @@
 import prepareDataset
 
 import os
+import sys
 import copy
 import random
 from itertools import count
@@ -24,7 +25,12 @@ PRELU_WEIGHT = Variable(PRELU_WEIGHT)
 
 Transition = namedtuple('Transition', ('pid', 'framesCount', 'state', 'action', 'nextState', 'reward', 'framesDropInfo'))
 
-seqRootRGB = '/data/home/prateeka/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
+if sys.platform.startswith('linux'):
+    dirPath = '/data/home/prateeka/'
+elif sys.platform.startswith('darwin'):
+    dirPath = '/Users/prateek/8thSem/'
+
+seqRootRGB = dirPath + 'dataset/iLIDS-VID/i-LIDS-VID/sequences/'
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 personNoDict = dict([v,k] for k,v in personIdxDict.items())
 # print personIdxDict
@@ -65,10 +71,21 @@ def getTripletInfo(triplet, personIdxDict, personFramesDict):
     initialState[0, fc1:maxFrameCount] = 0
     initialState[1, fc2:maxFrameCount] = 0
     initialState[2, fc3:maxFrameCount] = 0
+
     tempDict = {}
     tempDict['A'] = [i for i in range(0, fc1-4)]
+    # print(len(tempDict['A']))
     tempDict['B'] = [i for i in range(0, fc2-4)]
     tempDict['C'] = [i for i in range(0, fc3-4)]
+    for i in range(0, len(tempDict['A'])-2, 3):
+        tempDict['A'][i+1] = -1
+        tempDict['A'][i+2] = -1
+    for i in range(0, len(tempDict['B'])-2, 3):
+        tempDict['B'][i+1] = -1
+        tempDict['B'][i+2] = -1
+    for i in range(0, len(tempDict['C'])-2, 3):
+        tempDict['C'][i+1] = -1
+        tempDict['C'][i+2] = -1
     framesDropInfo = torch.IntTensor(3, maxFrameCount)
     framesDropInfo[0, 0:fc1-4] = torch.IntTensor(tempDict['A'])
     framesDropInfo[0, fc1-4:maxFrameCount] = -1
@@ -118,9 +135,10 @@ def loadImage(filename):
 def loadDroppedFrames(rootDir, framesDropIndex):
     framesDropIndex = int(framesDropIndex.data[0])
     frameList = sorted(os.listdir(rootDir))
+    # printframeList
     if(frameList[0] == '.DS_Store'):
-        frameList.remove('.DS_Store')
-
+        frameList.remove('.DS_Store')   
+    # print("fdi", framesDropIndex)
     frameFileName = os.path.join(rootDir, frameList[framesDropIndex])
     x = loadImage(frameFileName)
     frameFileName = rootDir
@@ -134,9 +152,9 @@ def loadDroppedFrames(rootDir, framesDropIndex):
 def generateFramesBatch(pid_batch, action_batch):
     frames_batch = torch.Tensor(pid_batch.size(0), 15, 128, 64)
     for i in range(0, pid_batch.size(0)):
-        rootDir = "/data/home/prateeka/dataset/iLIDS-VID/i-LIDS-VID/sequences/"
-        camDir = "cam"
-        pidDir = ""
+        rootDir = dirPath + 'dataset/iLIDS-VID/i-LIDS-VID/sequences/'
+        camDir = 'cam'
+        pidDir = ''
         # print pid_batch
         if int(action_batch[i][0]) is 0:
             camDir = camDir + "1"
@@ -160,9 +178,9 @@ def findSimilarity(weights, pid, framesCount):
     pooledFeatureA = torch.zeros(1, 128)
     pooledFeatureB = torch.zeros(1, 128)
     pooledFeatureC = torch.zeros(1, 128)
-    frameFeaturesA = torch.load('/data/home/prateeka/temporalRepresentation/cam1/' + str(pid[0])+'.pt')
-    frameFeaturesB = torch.load('/data/home/prateeka/temporalRepresentation/cam2/' + str(pid[1])+'.pt')
-    frameFeaturesC = torch.load('/data/home/prateeka/temporalRepresentation/cam2/' + str(pid[2])+'.pt')
+    frameFeaturesA = torch.load(dirPath + 'temporalRepresentation/cam1/' + str(pid[0])+'.pt')
+    frameFeaturesB = torch.load(dirPath + 'temporalRepresentation/cam2/' + str(pid[1])+'.pt')
+    frameFeaturesC = torch.load(dirPath + 'temporalRepresentation/cam2/' + str(pid[2])+'.pt')
 
     for i in range(framesCount[0]):
         pooledFeatureA += frameFeaturesA[i] * weights[0][i]
@@ -248,7 +266,6 @@ def getAction(pid, framesCount, state, framesDropInfo, model):
         action = torch.IntTensor(2)
         action[0] = channel
         action[1] = getframeDropIndex(framesDropInfo, channel)
-
         return action
     else:
         pid_batch, framesCount_batch, state_batch, action_batch = genAllAction(Variable(pid), Variable(framesCount), Variable(state), Variable(framesDropInfo))
@@ -315,27 +332,7 @@ def performAction(state, action, threshold, pid, framesDropInfo, framesCount):
     return nextState, framesDropInfo, reward, done
 
 def getOrderStats(pid, framesCount, state, action):
-    channel = int(action[0][0])
-    personNo = int(pid[0][channel])
-    if int(action[0][0] == 0):
-        cam = 1
-    else:
-        cam = 2
-    # print personNo
-    personId = personIdxDict[personNo]
-    frameFeatures = torch.load('/data/home/prateeka/temporalRepresentation/cam' + str(cam) + '/' + str(personNo)+'.pt')
-    poolFeatures = torch.zeros(1, 128)
-    for i in range(int(framesCount[0][channel])):
-        poolFeatures += state[0][channel][i] * frameFeatures[i]
-    poolDroppedFeatures = torch.zeros(1, 128)
-    for i in range(int(action[0][1]), int(action[0][1])+5):
-        poolDroppedFeatures += frameFeatures[i]
-    poolDroppedFeatures /= 5
-    poolFeatures -= poolDroppedFeatures
-    v1 = poolFeatures
-    v2 = torch.FloatTensor([torch.var(frameFeatures)]).view(1, 1)
-
-    for i in range(1, pid.size(0)):
+    for i in range(0, pid.size(0)):
         channel = int(action[i][0])
         personNo = int(pid[i][channel])
         if int(action[i][0]) == 0:
@@ -343,7 +340,7 @@ def getOrderStats(pid, framesCount, state, action):
         else:
             cam = 2
         personId = personIdxDict[personNo]
-        frameFeatures = torch.load('/data/home/prateeka/temporalRepresentation/cam' + str(cam) + '/' + str(personNo)+'.pt')
+        frameFeatures = torch.load(dirPath + 'temporalRepresentation/cam' + str(cam) + '/' + str(personNo)+'.pt')
         poolFeatures = torch.zeros(1, 128)
         for j in range(int(framesCount[i][channel])):
             poolFeatures += state[i][channel][j] * frameFeatures[j]
@@ -352,10 +349,14 @@ def getOrderStats(pid, framesCount, state, action):
             poolDroppedFeatures += frameFeatures[j]
         poolDroppedFeatures /= 5
         poolFeatures -= poolDroppedFeatures
-        x = poolFeatures
-        y = torch.FloatTensor([torch.var(frameFeatures)]).view(1, 1)
-        v1 = torch.cat((v1, x), dim=0)
-        v2 = torch.cat((v2, y), dim=0)
+        if i == 0:
+            v1 = poolFeatures
+            v2 = torch.FloatTensor([torch.var(frameFeatures)]).view(1, 1)
+        else:
+            x = poolFeatures
+            y = torch.FloatTensor([torch.var(frameFeatures)]).view(1, 1)
+            v1 = torch.cat((v1, x), dim=0)
+            v2 = torch.cat((v2, y), dim=0)
 
     if torch.cuda.is_available():
         v1 = v1.cuda()

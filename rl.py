@@ -1,13 +1,16 @@
 import utilsRL
 import prepareDataset
 
+import sys
 import time
 import copy
 import math
 import random
 from PIL import Image
 from itertools import count
+from torchviz import make_dot
 from collections import namedtuple
+from matplotlib import pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -28,6 +31,11 @@ EPS_DECAY = 1000
 
 Transition = namedtuple('Transition', ('pid', 'framesCount', 'state', 'action', 'nextState', 'reward', 'framesDropInfo'))
 
+if sys.platform.startswith('linux'):
+    dirPath = '/data/home/prateeka/'
+elif sys.platform.startswith('darwin'):
+    dirPath = '/Users/prateek/8thSem/'
+
 model = utilsRL.DQN()
 if torch.cuda.is_available():
     model = model.cuda()
@@ -38,7 +46,7 @@ optimizer = optim.RMSprop(model.parameters(), lr = 1e-6)
 memory = utilsRL.ReplayMemory(10000)
 episodeDurations = []
 
-seqRootRGB = '/data/home/prateeka/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
+seqRootRGB = dirPath + 'dataset/iLIDS-VID/i-LIDS-VID/sequences/'
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 trainTriplets, testTriplets = prepareDataset.generateTriplets(len(personFramesDict), testTrainSplit)
 personNoDict = dict([v,k] for k,v in personIdxDict.items())
@@ -102,7 +110,7 @@ def optimizeModel(model):
         b.append(pid_nbatch[i].size(0))
     for i in range(1, BATCH_SIZE):
         b[i] += b[i-1]
-
+    print("input size printing", pid_nbatch.size(0))
     input = Variable(pid_nbatch), Variable(framesCount_nbatch), Variable(state_nbatch), Variable(action_nbatch)
     modelTic = time.time()
     output = model(*input)
@@ -126,8 +134,6 @@ def optimizeModel(model):
             param.grad.data.clamp_(-0.5, 0.5)
     optimizer.step()
     lossToc = time.time()
-
-
     print("Optimizing Model End")
 
 temp = 1
@@ -135,17 +141,15 @@ for epoch in range(num_epochs):
     epochTic = time.time()
     for triplet in trainTriplets:
         tripletTic = time.time()
-        #temp += 1
-        #if temp > 2:
-         #   break
-        # triplet = [34, 34, 172]
-        #triplet = [259, 259, 133]
+        # temp += 1
+        # if temp > 2:
+        #     break
+        # # triplet = [34, 34, 172]
+        # triplet = [259, 259, 133]
         print("Triplet Loop Running, triplet=", triplet)
         pid, framesDropInfo, framesCount, threshold, initialState = utilsRL.getTripletInfo(triplet, personIdxDict, personFramesDict)
+        # print framesDropInfo
         state = initialState.clone()
-        # print("threshold", threshold)
-        # print("initialState", state)
-
         for t in count():
             # print("initialState", state)
             print("T Loop Running current t=", t)
@@ -154,7 +158,6 @@ for epoch in range(num_epochs):
             # print("initialState", state)
             nextState, framesDropInfo, reward, done = utilsRL.performAction(state, action, threshold, pid, framesDropInfo, framesCount)
             memory.push(pid, framesCount, state, action, nextState, reward, framesDropInfo)
-            # print action
             # print("nextState", nextState)
             state = nextState.clone()
             print(sum(state[0]), threshold[0])
@@ -174,4 +177,4 @@ for epoch in range(num_epochs):
 
 # print episodeDurations
 # print memory.__len__()
-torch.save(model.state_dict(), '/data/home/prateeka/rl-person-verification/runs/model_run_dqn.pt')
+torch.save(model.state_dict(), dirPath + 'rl-person-verification/runs/model_run_dqn.pt')
