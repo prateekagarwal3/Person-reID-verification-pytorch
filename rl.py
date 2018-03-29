@@ -144,7 +144,7 @@ for epoch in range(num_epochs):
         # temp += 1
         # if temp > 2:
         #     break
-        # # triplet = [34, 34, 172]
+        # triplet = [34, 34, 172]
         # triplet = [259, 259, 133]
         print("Triplet Loop Running, triplet=", triplet)
         pid, framesDropInfo, framesCount, threshold, initialState = utilsRL.getTripletInfo(triplet, personIdxDict, personFramesDict)
@@ -177,4 +177,4 @@ for epoch in range(num_epochs):
 
 # print episodeDurations
 # print memory.__len__()
-torch.save(model.state_dict(), dirPath + 'rl-person-verification/runs/model_run_dqn.pt')
+torch.save(model.state_dict(), dirPath + 'gpu-rl/runs/model_run_dqn.pt')'''

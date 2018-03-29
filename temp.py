@@ -2,14 +2,13 @@ import sys
 import torch
 import random
 
-print sys.platform
-if sys.platform.startswith('linux'):
-    dirPath = '/data/home/prateeka/'
-    print "working"
-elif sys.platform.startswith('darwin'):
-    dirPath = '/Users/prateek/8thSem/'
-    print "working"
-
-from torchviz import make_dot
-pip install git+https://github.com/szagoruyko/pytorchviz
-make_dot(loss, params=dict(model.named_parameters()))
+a = [i for i in range(0, 24)]
+print a
+for i in range(0, 20, 5):
+    a[i+1] = -1
+    a[i+2] = -1
+    a[i+3] = -1
+    a[i+4] = -1
+print a
+a[i+6:i+9] = [-1, -1, -1, -1]
+print a

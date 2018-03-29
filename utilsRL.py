@@ -63,7 +63,7 @@ def getTripletInfo(triplet, personIdxDict, personFramesDict):
     fc1 = personFramesDict[personIdxDict[triplet[0]]][0]
     fc2 = personFramesDict[personIdxDict[triplet[1]]][1]
     fc3 = personFramesDict[personIdxDict[triplet[2]]][1]
-    # print fc1, fc2, fc3
+    print fc1, fc2, fc3
     fcMax = max(fc1, fc2, fc3)
     framesCount = torch.IntTensor([fc1, fc2, fc3])
     threshold = torch.IntTensor([int(fc1*frameDropThreshold), int(fc2*frameDropThreshold), int(fc3*frameDropThreshold)])
@@ -73,26 +73,40 @@ def getTripletInfo(triplet, personIdxDict, personFramesDict):
     initialState[2, fc3:maxFrameCount] = 0
 
     tempDict = {}
-    tempDict['A'] = [i for i in range(0, fc1-4)]
-    # print(len(tempDict['A']))
-    tempDict['B'] = [i for i in range(0, fc2-4)]
-    tempDict['C'] = [i for i in range(0, fc3-4)]
-    for i in range(0, len(tempDict['A'])-2, 3):
+    tempDict['A'] = [i for i in range(0, fc1-19)]
+    tempDict['B'] = [i for i in range(0, fc2-19)]
+    tempDict['C'] = [i for i in range(0, fc3-19)]
+    for i in range(0, len(tempDict['A'])-4, 5):
         tempDict['A'][i+1] = -1
         tempDict['A'][i+2] = -1
-    for i in range(0, len(tempDict['B'])-2, 3):
+        tempDict['A'][i+3] = -1
+        tempDict['A'][i+4] = -1
+    for i in range(0, len(tempDict['A'])):
+        if i % 5 != 0 and tempDict['A'][i] != -1:
+            tempDict['A'][i] = -1
+    for i in range(0, len(tempDict['B'])-4, 5):
         tempDict['B'][i+1] = -1
         tempDict['B'][i+2] = -1
-    for i in range(0, len(tempDict['C'])-2, 3):
+        tempDict['B'][i+3] = -1
+        tempDict['B'][i+4] = -1
+    for i in range(0, len(tempDict['B'])):
+        if i % 5 != 0 and tempDict['B'][i] != -1:
+            tempDict['B'][i] = -1
+    for i in range(0, len(tempDict['C'])-4, 5):
         tempDict['C'][i+1] = -1
         tempDict['C'][i+2] = -1
+        tempDict['C'][i+3] = -1
+        tempDict['C'][i+4] = -1
+    for i in range(0, len(tempDict['C'])):
+        if i % 5 != 0 and tempDict['C'][i] != -1:
+            tempDict['C'][i] = -1
     framesDropInfo = torch.IntTensor(3, maxFrameCount)
-    framesDropInfo[0, 0:fc1-4] = torch.IntTensor(tempDict['A'])
-    framesDropInfo[0, fc1-4:maxFrameCount] = -1
-    framesDropInfo[1, 0:fc2-4] = torch.IntTensor(tempDict['B'])
-    framesDropInfo[1, fc2-4:maxFrameCount] = -1
-    framesDropInfo[2, 0:fc3-4] = torch.IntTensor(tempDict['C'])
-    framesDropInfo[2, fc3-4:maxFrameCount] = -1
+    framesDropInfo[0, 0:fc1-19] = torch.IntTensor(tempDict['A'])
+    framesDropInfo[0, fc1-19:maxFrameCount] = -1
+    framesDropInfo[1, 0:fc2-19] = torch.IntTensor(tempDict['B'])
+    framesDropInfo[1, fc2-19:maxFrameCount] = -1
+    framesDropInfo[2, 0:fc3-19] = torch.IntTensor(tempDict['C'])
+    framesDropInfo[2, fc3-19:maxFrameCount] = -1
 
     if torch.cuda.is_available():
         pid = pid.cuda()
@@ -137,12 +151,12 @@ def loadDroppedFrames(rootDir, framesDropIndex):
     frameList = sorted(os.listdir(rootDir))
     # printframeList
     if(frameList[0] == '.DS_Store'):
-        frameList.remove('.DS_Store')   
+        frameList.remove('.DS_Store')
     # print("fdi", framesDropIndex)
     frameFileName = os.path.join(rootDir, frameList[framesDropIndex])
     x = loadImage(frameFileName)
     frameFileName = rootDir
-    for i in range(framesDropIndex + 1, framesDropIndex + 5):
+    for i in range(framesDropIndex + 2, framesDropIndex + 20, 2):
         frameFileName = rootDir
         frameFileName = os.path.join(rootDir, frameList[i])
         y = loadImage(frameFileName)
@@ -150,7 +164,7 @@ def loadDroppedFrames(rootDir, framesDropIndex):
     return x
 
 def generateFramesBatch(pid_batch, action_batch):
-    frames_batch = torch.Tensor(pid_batch.size(0), 15, 128, 64)
+    frames_batch = torch.Tensor(pid_batch.size(0), 30, 128, 64)
     for i in range(0, pid_batch.size(0)):
         rootDir = dirPath + 'dataset/iLIDS-VID/i-LIDS-VID/sequences/'
         camDir = 'cam'
@@ -309,12 +323,12 @@ def checkTerminalState(state, threshold, pid, framesDropInfo, framesCount):
 
 def performAction(state, action, threshold, pid, framesDropInfo, framesCount):
     nextState = state.clone()
-    for i in range(0, 5):
+    for i in range(0, 20, 2):
         nextState[action[0], (i + action[1])] = 0
-    for i in range(0,5):
+    for i in range(0,20, 2):
         if action[1]+i in framesDropInfo[action[0]]:
             framesDropInfo[action[0], (action[1]+i)] = -1
-    for i in range(1,5):
+    for i in range(1, 20, 2):
         if action[1] - i in framesDropInfo[action[0]]:
             framesDropInfo[action[0], (action[1]-i)] = -1
 
@@ -367,7 +381,7 @@ class DQN(nn.Module):
 
     def __init__(self):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(15, 16, kernel_size=9)
+        self.conv1 = nn.Conv2d(30, 16, kernel_size=9)
         self.conv2 = nn.Conv2d(16, 16, kernel_size=4)
         self.conv3 = nn.Conv2d(16, 16, kernel_size=3)
         self.mp = nn.MaxPool2d(4, stride=2)
