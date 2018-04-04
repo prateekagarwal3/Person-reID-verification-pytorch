@@ -1,7 +1,9 @@
+import buildModel
 import prepareDataset
 
 import os
 import sys
+import math
 import copy
 import random
 from itertools import count
@@ -35,6 +37,26 @@ personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 personNoDict = dict([v,k] for k,v in personIdxDict.items())
 # print personIdxDict
 
+torch.manual_seed(7)
+
+sequence_length = 16
+input_size = 64
+hidden_size = 64
+num_layers = 2
+learning_rate = 0.001
+momentum = 0
+alpha = torch.FloatTensor([0.4])
+if torch.cuda.is_available():
+    alpha = alpha.cuda()
+alpha = Variable(alpha)
+num_epochs = 100
+batch_size = 1
+testTrainSplit = 0.75
+steps_done = 0
+EPS_START = 1.0
+EPS_END = 0.1
+EPS_DECAY = 1000
+
 class ReplayMemory(object):
 
     def __init__(self, capacity):
@@ -63,14 +85,17 @@ def getTripletInfo(triplet, personIdxDict, personFramesDict):
     fc1 = personFramesDict[personIdxDict[triplet[0]]][0]
     fc2 = personFramesDict[personIdxDict[triplet[1]]][1]
     fc3 = personFramesDict[personIdxDict[triplet[2]]][1]
-    print fc1, fc2, fc3
+    # print fc1, fc2, fc3
     fcMax = max(fc1, fc2, fc3)
     framesCount = torch.IntTensor([fc1, fc2, fc3])
     threshold = torch.IntTensor([int(fc1*frameDropThreshold), int(fc2*frameDropThreshold), int(fc3*frameDropThreshold)])
     initialState = torch.ones(3, maxFrameCount)
-    initialState[0, fc1:maxFrameCount] = 0
-    initialState[1, fc2:maxFrameCount] = 0
-    initialState[2, fc3:maxFrameCount] = 0
+    if fc1 < maxFrameCount:
+        initialState[0, fc1:maxFrameCount] = 0
+    if fc2 < maxFrameCount:
+        initialState[1, fc2:maxFrameCount] = 0
+    if fc3 < maxFrameCount:
+        initialState[2, fc3:maxFrameCount] = 0
 
     tempDict = {}
     tempDict['A'] = [i for i in range(0, fc1-19)]
@@ -219,77 +244,246 @@ def findReward(weights, newWeights, pid, framesCount):
     reward = (newSimilarityAB - initialSimilarityAB) - (newSimilarityAC - initialSimilarityAC)
     return reward
 
+def countOnes(state):
+    fc1 = 0
+    fc2 = 0
+    fc3 = 0
+    for i in range(state.size(1)):
+        if int(state[0][i]) is 1:
+            fc1 += 1
+    for i in range(state.size(1)):
+        if int(state[1][i]) is 1:
+            fc2 += 1
+    for i in range(state.size(1)):
+        if int(state[2][i]) is 1:
+            fc3 += 1
+    return fc1, fc2, fc3
+
+class RNN(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers):
+        super(RNN, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+
+    def forward(self, x):
+        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        c0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
+        if torch.cuda.is_available():
+            h0 = h0.cuda()
+            c0 = c0.cuda()
+        h0 = Variable(h0)
+        c0 = Variable(c0)
+        out, hidden_data = self.lstm(x, (h0, c0))
+        return out
+
+rnn = RNN(input_size, hidden_size, num_layers)
+tripletRNNRGB = buildModel.TripletNet(rnn)
+if torch.cuda.is_available():
+    tripletRNNRGB.cuda()
+
+tripletRNNOP = buildModel.TripletNet(rnn)
+if torch.cuda.is_available():
+    tripletRNNOP.cuda()
+
+tripletRNNRGB.load_state_dict(torch.load('/Users/prateek/8thSem/gpu-rl/runs/model_run_rgb.pt'))
+tripletRNNOP.load_state_dict(torch.load('/Users/prateek/8thSem/gpu-rl/runs/model_run_op.pt'))
+
+def getState(pid, framesCount, state, framesDropInfo):
+    fc1, fc2, fc3 = countOnes(state)
+    anchorRGBFeatures = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam1/' + str(pid[0].data[0]) + '.pt')
+    positiveRGBFeatures = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam2/' + str(pid[1].data[0]) + '.pt')
+    negativeRGBFeatures = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam2/' + str(pid[2].data[0]) + '.pt')
+    anchorFrames = torch.Tensor(fc1, 64)
+    positiveFrames = torch.Tensor(fc2, 64)
+    negativeFrames = torch.Tensor(fc3, 64)
+
+    anchorOPFeatures = torch.load('/Users/prateek/8thSem/features/featuresOP/cam1/' + str(pid[0].data[0]) + '.pt')
+    positiveOPFeatures = torch.load('/Users/prateek/8thSem/features/featuresOP/cam2/' + str(pid[1].data[0]) + '.pt')
+    negativeOPFeatures = torch.load('/Users/prateek/8thSem/features/featuresOP/cam2/' + str(pid[2].data[0]) + '.pt')
+    anchorOPFrames = torch.Tensor(fc1, 64)
+    positiveOPFrames = torch.Tensor(fc2, 64)
+    negativeOPFrames = torch.Tensor(fc3, 64)
+    k = 0
+    for i in range(state.size(1)):
+        if int(state[0][i]) == 1:
+            anchorFrames[k] = anchorRGBFeatures[i]
+            anchorOPFrames[k] = anchorOPFeatures[i]
+            k +=1
+    k = 0
+    for i in range(state.size(1)):
+        if int(state[1][i]) == 1:
+            positiveFrames[k] = positiveRGBFeatures[i]
+            positiveOPFrames[k] = positiveOPFeatures[i]
+            k +=1
+
+    k = 0
+    for i in range(state.size(1)):
+        if int(state[2][i]) == 1:
+            negativeFrames[k] =  negativeRGBFeatures[i]
+            negativeOPFrames[k] =  negativeOPFeatures[i]
+            k +=1
+
+    anchorFC = anchorFrames.size(0)
+    positiveFC = positiveFrames.size(0)
+    negativeFC = negativeFrames.size(0)
+    maxFC = max(anchorFC, positiveFC, negativeFC)
+    anchorBatchSize = anchorFC / sequence_length + 1
+    positiveBatchSize = positiveFC / sequence_length + 1
+    negativeBatchSize = negativeFC / sequence_length + 1
+    maxBatchSize = max(anchorBatchSize, positiveBatchSize, negativeBatchSize)
+    anchorIP = torch.Tensor(maxBatchSize, sequence_length, 64)
+    positiveIP = torch.Tensor(maxBatchSize, sequence_length, 64)
+    negativeIP = torch.Tensor(maxBatchSize, sequence_length, 64)
+    for i in range(maxBatchSize):
+        if i < anchorBatchSize-1:
+            anchorIP[i] = anchorFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            anchorIP[i] = anchorFrames[0 : sequence_length]
+    for i in range(maxBatchSize):
+        if i < positiveBatchSize-1:
+            positiveIP[i] = positiveFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            positiveIP[i] = positiveFrames[0 : sequence_length]
+    for i in range(maxBatchSize):
+        if i < negativeBatchSize-1:
+            negativeIP[i] = negativeFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            negativeIP[i] = negativeFrames[0 : sequence_length]
+    H, Hp, Hn = tripletRNNRGB(anchorIP, positiveIP, negativeIP)
+    H = torch.cat(H.data, dim=0)
+    Hp = torch.cat(Hp.data, dim=0)
+    Hn = torch.cat(Hn.data, dim=0)
+    anchorRGBFeatures = H[0:anchorFC]
+    positiveRGBFeatures = Hp[0:positiveFC]
+    negativeRGBFeatures = Hn[0:negativeFC]
+
+    anchorOPFC = anchorOPFrames.size(0)
+    positiveOPFC = positiveOPFrames.size(0)
+    negativeOPFC = negativeOPFrames.size(0)
+    maxOPFC = max(anchorOPFC, positiveOPFC, negativeOPFC)
+    anchorOPBatchSize = anchorOPFC / sequence_length + 1
+    positiveOPBatchSize = positiveOPFC / sequence_length + 1
+    negativeOPBatchSize = negativeOPFC / sequence_length + 1
+    maxOPBatchSize = max(anchorOPBatchSize, positiveOPBatchSize, negativeOPBatchSize)
+    anchorOPIP = torch.Tensor(maxOPBatchSize, sequence_length, 64)
+    positiveOPIP = torch.Tensor(maxOPBatchSize, sequence_length, 64)
+    negativeOPIP = torch.Tensor(maxOPBatchSize, sequence_length, 64)
+    for i in range(maxBatchSize):
+        if i < anchorOPBatchSize-1:
+            anchorOPIP[i] = anchorOPFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            anchorOPIP[i] = anchorOPFrames[0 : sequence_length]
+    for i in range(maxOPBatchSize):
+        if i < positiveOPBatchSize-1:
+            positiveOPIP[i] = positiveOPFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            positiveOPIP[i] = positiveOPFrames[0 : sequence_length]
+    for i in range(maxOPBatchSize):
+        if i < negativeOPBatchSize-1:
+            negativeOPIP[i] = negativeOPFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            negativeOPIP[i] = negativeOPFrames[0 : sequence_length]
+
+    HOP, HpOP, HnOP = tripletRNNOP(anchorOPIP, positiveOPIP, negativeOPIP)
+    HOP = torch.cat(HOP.data, dim=0)
+    HpOP = torch.cat(HpOP.data, dim=0)
+    HnOP = torch.cat(HnOP.data, dim=0)
+    anchorOPFeatures = HOP[0:anchorFC]
+    positiveOPFeatures = HpOP[0:positiveFC]
+    negativeOPFeatures = HnOP[0:negativeFC]
+    anchorFeatures = torch.mean(torch.cat((anchorRGBFeatures, anchorOPFeatures), dim=1), dim=0).view(-1, 128)
+    positiveFeatures = torch.mean(torch.cat((positiveRGBFeatures, positiveOPFeatures), dim=1), dim=0).view(-1, 128)
+    negativeFeatures = torch.mean(torch.cat((negativeRGBFeatures, negativeOPFeatures), dim=1), dim=0).view(-1, 128)
+
+    features = torch.cat((anchorFeatures, positiveFeatures, negativeFeatures), dim=0)
+
+    if torch.cuda.is_available():
+        features = features.cuda()
+
+    return features
+
+def getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_batch, policy_net):
+    values = torch.Tensor(pid_batch.size(0) / 3, 1)
+    for i in range(0, pid_batch.size(0), 3):
+        pid = pid_batch[i:i+3][:]
+        # print pid_batch.size()
+        framesCount = framesCount_batch[i:i+3][:]
+        state = state_batch[i:i+3][:]
+        framesDropInfo = framesDropInfo_batch[i:i+3][:]
+        # print framesDropInfo_batch.size()
+        stateReduced = getState(pid, framesCount, state, framesDropInfo)
+        qValues = policy_net(stateReduced).data
+        maxValue = qValues[0][0]
+        maxIndex = torch.IntTensor([0, 0])
+        # print("printing qvalues size", qValues.size())
+        for i in range(qValues.size(0)):
+            for j in range(qValues.size(1)):
+                if j * 5 < int(framesCount[i]) and int(framesDropInfo[i][j*5]) != -1:
+                    if maxValue < qValues[i][j]:
+                        # print("loop running")
+                        maxValue = qValues[i][j]
+                        maxIndex = torch.IntTensor([i, j*5])
+        values[i] = maxValue
+    return Variable(values)
+
 def getframeDropIndex(framesDropInfo, channel):
     a = framesDropInfo[channel]
     while True:
         # print a
         x = random.sample(a, 1)[0]
+        # print "x", x
+        if int(torch.max(a)) is -1:
+            return -1
         if x == -1:
             x = random.sample(a, 1)[0]
+            # print("runugfsgfggf")
         if x != -1:
             return x
 
-def genAllAction(pid, framesCount, state, framesDropInfo):
-    action_batch = torch.Tensor(400, 2)
-    numActions = 0
-
-    for c in range(0, 3):
-        for index in framesDropInfo[c]:
-            # print index
-            if int(index) is -1:
-                continue
-            # if index == 0:
-                # print("Channel for zero index" , c)
-            action_batch[numActions] = torch.IntTensor([c, index.data[0]])
-            numActions += 1
-            tempS = state
-            tempF = framesDropInfo.data
-            nextState = state.clone()
-            for i in range(0, 5):
-                if i + index.data[0] < framesCount[c].data[0]:
-                    temp = (i + index.data[0])
-                    nextState[c, temp] = 0
-            for i in range(0,5):
-                if index.data[0]+i in tempF[c]:
-                    temp = (index.data[0]+i)
-                    tempF[c, temp] = -1
-            for i in range(1,5):
-                if index.data[0] - i in tempF[c]:
-                    temp = (index.data[0]-i)
-                    tempF[c, temp] = -1
-
-    action_batch = action_batch[0:numActions]
-    pid_batch = torch.Tensor(numActions, 3)
-    framesCount_batch = torch.Tensor(numActions, 3)
-    state_batch = torch.Tensor(numActions, 3, state.size(1))
-    for i in range(numActions):
-        pid_batch[i] = pid.data
-        framesCount_batch[i] = framesCount.data
-        state_batch[i] = state.data
-    if torch.cuda.is_available():
-        pid_batch = pid_batch.cuda()
-        framesCount_batch = framesCount_batch.cuda()
-        state_batch = state_batch.cuda()
-        action_batch = action_batch.cuda()
-    return pid_batch, framesCount_batch, state_batch, action_batch
-
-def getAction(pid, framesCount, state, framesDropInfo, model):
-    if random.random() < 0.1:
-        # print("Runnning get action")
-        channel = random.randint(0, 2)
-        action = torch.IntTensor(2)
-        action[0] = channel
-        action[1] = getframeDropIndex(framesDropInfo, channel)
-        return action
+def getAction(pid, framesCount, state, framesDropInfo, policy_net):
+    global steps_done
+    done = 0
+    sample = random.random()
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * \
+        math.exp(-1. * steps_done / EPS_DECAY)
+    steps_done += 1
+    if sample > eps_threshold:
+        stateReduced = getState(pid, framesCount, state, framesDropInfo)
+        # print stateReduced
+        qValues = policy_net(stateReduced).data
+        maxValue = qValues[0][0]
+        maxIndex = torch.IntTensor([0, 0])
+        # print("printing qvalues size", qValues.size())
+        for i in range(qValues.size(0)):
+            for j in range(qValues.size(1)):
+                if j * 5 < int(framesCount[i]) and int(framesDropInfo[i][j*5]) != -1:
+                    if maxValue < qValues[i][j]:
+                        # print("loop running")
+                        maxValue = qValues[i][j]
+                        maxIndex = torch.IntTensor([i, j*5])
+        return done, maxIndex
     else:
-        pid_batch, framesCount_batch, state_batch, action_batch = genAllAction(Variable(pid), Variable(framesCount), Variable(state), Variable(framesDropInfo))
-        modelTic = time.time()
-        bestActionIndex = model(Variable(pid_batch), Variable(framesCount_batch), Variable(state_batch), Variable(action_batch)).max(0)[1].data
-        modelToc = time.time()
-        print("Time taken in model action finder: {} seconds".format(modelToc-modelTic))
-
-        # bestActionIndex.volatile = False
-        return torch.IntTensor([int(action_batch[bestActionIndex][0][0]), int(action_batch[bestActionIndex][0][1])])
+        done = 0
+        action = torch.IntTensor(2)
+        tempC = random.randint(0, 2)
+        tempA = getframeDropIndex(framesDropInfo, tempC)
+        checkChannel = [0, 0, 0]
+        checkChannel[tempC] = 1
+        while(True):
+            if tempA == -1:
+                tempC = random.randint(0, 2)
+                tempA = getframeDropIndex(framesDropInfo, tempC)
+                checkChannel[tempC] = 1
+            elif tempA != -1:
+                break
+            elif sum(checkChannel) == 3 and tempA == -1:
+                print "No Action possible"
+                done = 1
+                break
+        action[0] = tempC
+        action[1] = tempA
+        return done, action
 
 def checkTerminalState(state, threshold, pid, framesDropInfo, framesCount):
     # print(sum(state[0]), threshold[0])
@@ -323,12 +517,12 @@ def checkTerminalState(state, threshold, pid, framesDropInfo, framesCount):
 
 def performAction(state, action, threshold, pid, framesDropInfo, framesCount):
     nextState = state.clone()
-    for i in range(0, 20, 2):
+    for i in range(0, 10, 2):
         nextState[action[0], (i + action[1])] = 0
-    for i in range(0,20, 2):
+    for i in range(0, 10, 2):
         if action[1]+i in framesDropInfo[action[0]]:
             framesDropInfo[action[0], (action[1]+i)] = -1
-    for i in range(1, 20, 2):
+    for i in range(1, 10, 2):
         if action[1] - i in framesDropInfo[action[0]]:
             framesDropInfo[action[0], (action[1]-i)] = -1
 
@@ -345,69 +539,28 @@ def performAction(state, action, threshold, pid, framesDropInfo, framesCount):
         nextState = nextState.cuda()
     return nextState, framesDropInfo, reward, done
 
-def getOrderStats(pid, framesCount, state, action):
-    for i in range(0, pid.size(0)):
-        channel = int(action[i][0])
-        personNo = int(pid[i][channel])
-        if int(action[i][0]) == 0:
-            cam = 1
-        else:
-            cam = 2
-        personId = personIdxDict[personNo]
-        frameFeatures = torch.load(dirPath + 'temporalRepresentation/cam' + str(cam) + '/' + str(personNo)+'.pt')
-        poolFeatures = torch.zeros(1, 128)
-        for j in range(int(framesCount[i][channel])):
-            poolFeatures += state[i][channel][j] * frameFeatures[j]
-        poolDroppedFeatures = torch.zeros(1, 128)
-        for j in range(int(action[i][1]), int(action[i][1])+5):
-            poolDroppedFeatures += frameFeatures[j]
-        poolDroppedFeatures /= 5
-        poolFeatures -= poolDroppedFeatures
-        if i == 0:
-            v1 = poolFeatures
-            v2 = torch.FloatTensor([torch.var(frameFeatures)]).view(1, 1)
-        else:
-            x = poolFeatures
-            y = torch.FloatTensor([torch.var(frameFeatures)]).view(1, 1)
-            v1 = torch.cat((v1, x), dim=0)
-            v2 = torch.cat((v2, y), dim=0)
-
-    if torch.cuda.is_available():
-        v1 = v1.cuda()
-        v2 = v2.cuda()
-    return v1, v2
-
 class DQN(nn.Module):
 
     def __init__(self):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(30, 16, kernel_size=9)
-        self.conv2 = nn.Conv2d(16, 16, kernel_size=4)
-        self.conv3 = nn.Conv2d(16, 16, kernel_size=3)
-        self.mp = nn.MaxPool2d(4, stride=2)
-        self.fc1 = nn.Linear(528, 128)
-        self.fc2 = nn.Linear(257, 64)
-        self.fc3 = nn.Linear(64, 1)
+        self.fc1 = nn.Linear(128, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 37)
+        self.dp1 = nn.Dropout(p=0.5)
+        self.dp2 = nn.Dropout(p=0.25)
 
-    def forward(self, pid, framesCount, state, action):
-        # print action
-        # print("pid", pid.size())
-        x = generateFramesBatch(pid, action)
-        if torch.cuda.is_available():
-            # print "in Loop"
-            x = x.cuda()
+    def forward(self, x):
+        # print x.size()
         x = Variable(x)
-        # print x
-        x = F.prelu(self.mp(self.conv1(x)), weight=PRELU_WEIGHT)
-        x = F.prelu(self.mp(self.conv2(x)), weight=PRELU_WEIGHT)
-        x = F.prelu(self.mp(self.conv3(x)), weight=PRELU_WEIGHT)
-        x = self.fc1(x.view(x.size(0), -1))
-        v1, v2 = getOrderStats(pid.data, framesCount.data, state.data, action.data)
-        # print("x", x.size())
-        # print v1.size(), v2.size()
-        x = Variable(torch.cat([x.data, v1, v2], dim=1))
+        x = self.fc1(x)
+        x = self.dp1(x)
         x = self.fc2(x)
+        x = self.dp1(x)
         x = self.fc3(x)
+        x = self.dp1(x)
+        x = self.fc4(x)
+        x = self.dp2(x)
         return x
 
 if __name__ == "__main__":
