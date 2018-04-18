@@ -25,9 +25,8 @@ alpha = torch.FloatTensor([0.4])
 if torch.cuda.is_available():
     alpha = alpha.cuda()
 alpha = Variable(alpha)
-num_epochs = 400
-batch_size = 1
-testTrainSplit = 0.75
+num_epochs = 200
+testTrainSplit = 1
 
 seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
 seqRootOP = '/Users/prateek/8thSem/dataset/iLIDS-VID-OF-HVP/sequences'
@@ -36,6 +35,7 @@ personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 personNoDict = dict([v,k] for k,v in personIdxDict.items())
 nTotalPersons = len(personFramesDict)
 trainTriplets, testTriplets = prepareDataset.generateTriplets(nTotalPersons, testTrainSplit)
+# print len(trainTriplets), len(testTriplets)
 
 class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers):
@@ -70,6 +70,9 @@ optimizerOP = torch.optim.SGD(tripletRNNOP.parameters(), lr=learning_rate, momen
 
 # if torch.cuda.is_available():
 torch.backends.cudnn.benchmark = True
+
+f = open("lossRCNN.txt", "w+")
+
 count = 1
 tripletRNNRGB.train()
 for epoch in range(num_epochs):
@@ -125,7 +128,8 @@ for epoch in range(num_epochs):
         zero = Variable(zero)
         lossRGB += torch.sum(torch.max(zero, alpha - cos(H[0], Hp[0]) + cos(H[0], Hn[0])))
         lossRGB /= sequence_length
-        print lossRGB
+        f.write(str(lossRGB.data))
+        # print lossRGB
         optimizerRGB.zero_grad()
         lossRGB.backward()
         optimizerRGB.step()
@@ -173,7 +177,7 @@ for epoch in range(num_epochs):
         zero = Variable(zero)
         lossOP += torch.sum(torch.max(zero, alpha - cos(HOP[0], HpOP[0]) + cos(HOP[0], HnOP[0])))
         lossOP /= sequence_length
-        print lossOP
+        f.write(str(lossOP.data))
         optimizerOP.zero_grad()
         lossOP.backward()
         optimizerOP.step()
@@ -182,5 +186,5 @@ for epoch in range(num_epochs):
     eToc = time.time()
     print("Epoch {}/{} ends, Time Taken is : {} seconds".format(epoch+1, num_epochs, eToc-eTic))
 
-torch.save(tripletRNNRGB.state_dict(), '/Users/prateek/8thSem/rl-person-verification/runs/model_run_rgb.pt')
-torch.save(tripletRNNOP.state_dict(), '/Users/prateek/8thSem/rl-person-verification/runs/model_run_op.pt')
+torch.save(tripletRNNRGB.state_dict(), '/Users/prateek/8thSem/gpu-rl/runs/model_run_rgb.pt')
+torch.save(tripletRNNOP.state_dict(), '/Users/prateek/8thSem/gpu-rl/runs/model_run_op.pt')

@@ -1,7 +1,14 @@
 import sys
 import torch
 import random
+import torch.nn.functional as F
+from torch.autograd import Variable
 
-count = torch.ones(12, 1)
-count[0:2] = 2
-print count
+x = torch.ones(100)
+x = x - 2
+x = F.relu(Variable(x))
+
+for i in range(100000000):
+    f = open("test.txt", "a+")
+    f.write(str(i) + "\n")
+    f.close()

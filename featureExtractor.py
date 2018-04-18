@@ -36,6 +36,7 @@ personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 personNoDict = dict([v,k] for k,v in personIdxDict.items())
 nTotalPersons = len(personFramesDict)
 trainTriplets, testTriplets = prepareDataset.generateTriplets(nTotalPersons, testTrainSplit)
+# print len(trainTriplets), len(testTriplets)
 
 class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers):
@@ -64,14 +65,18 @@ tripletRNNOP = buildModel.TripletNet(rnn)
 if torch.cuda.is_available():
     tripletRNNOP.cuda()
 
-tripletRNNRGB.load_state_dict(torch.load('/Users/prateek/8thSem/rl-person-verification/runs/model_run_rgb.pt'))
-tripletRNNOP.load_state_dict(torch.load('/Users/prateek/8thSem/rl-person-verification/runs/model_run_op.pt'))
+tripletRNNRGB.load_state_dict(torch.load('/Users/prateek/8thSem/gpu-rl/runs/model_run_rgb.pt'))
+tripletRNNOP.load_state_dict(torch.load('/Users/prateek/8thSem/gpu-rl/runs/model_run_op.pt'))
 
 for cam in range(1, 3):
-    for p in range(1, 299, 3):
-        anchorFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam' + str(cam) + '/' + str(p)+'.pt')
-        positiveFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam' + str(cam) + '/' + str(p+1)+'.pt')
-        negativeFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam' + str(cam) + '/' + str(p+2)+'.pt')
+    for triplet in trainTriplets:
+        p1 = triplet[0]
+        p2 = triplet[0]
+        p3 = triplet[0]
+        print cam, p1, p2, p3
+        anchorFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam' + str(cam) + '/' + str(p1)+'.pt')
+        positiveFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam' + str(cam) + '/' + str(p2)+'.pt')
+        negativeFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam' + str(cam) + '/' + str(p3)+'.pt')
         anchorFC = anchorFrames.size(0)
         positiveFC = positiveFrames.size(0)
         negativeFC = negativeFrames.size(0)
@@ -106,9 +111,9 @@ for cam in range(1, 3):
         positiveRGBFeatures = Hp[0:positiveFC]
         negativeRGBFeatures = Hn[0:negativeFC]
 
-        anchorOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam' + str(cam) + '/' + str(p)+'.pt')
-        positiveOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam' + str(cam) + '/' + str(p+1)+'.pt')
-        negativeOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam' + str(cam) + '/' + str(p+2)+'.pt')
+        anchorOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam' + str(cam) + '/' + str(p1)+'.pt')
+        positiveOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam' + str(cam) + '/' + str(p2)+'.pt')
+        negativeOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam' + str(cam) + '/' + str(p3)+'.pt')
         anchorOPFC = anchorOPFrames.size(0)
         positiveOPFC = positiveOPFrames.size(0)
         negativeOPFC = negativeOPFrames.size(0)
@@ -143,6 +148,7 @@ for cam in range(1, 3):
         anchorOPFeatures = HOP[0:anchorFC]
         positiveOPFeatures = HpOP[0:positiveFC]
         negativeOPFeatures = HnOP[0:negativeFC]
+        print anchorRGBFeatures
         anchorFeatures = torch.cat((anchorRGBFeatures, anchorOPFeatures), dim=1)
         positiveFeatures = torch.cat((positiveRGBFeatures, positiveOPFeatures), dim=1)
         negativeFeatures = torch.cat((negativeRGBFeatures, negativeOPFeatures), dim=1)
@@ -150,6 +156,6 @@ for cam in range(1, 3):
         # print anchorFeatures
         # print positiveFeatures
         # print negativeFeatures
-        torch.save(anchorFeatures, featuresDir + str(p) + '.pt')
-        torch.save(positiveFeatures, featuresDir + str(p+1) + '.pt')
-        torch.save(negativeFeatures, featuresDir + str(p+2) + '.pt')
+        torch.save(anchorFeatures, featuresDir + str(p1) + '.pt')
+        torch.save(positiveFeatures, featuresDir + str(p2) + '.pt')
+        torch.save(negativeFeatures, featuresDir + str(p3) + '.pt')

@@ -34,27 +34,35 @@ model = utilsRL.DQN()
 if torch.cuda.is_available():
     model = model.cuda()
 
-model.load_state_dict(torch.load(dirPath + 'rl-person-verification/runs/model_run_dqn.pt'))
+model.load_state_dict(torch.load(dirPath + 'gpu-rl/runs/model_run_dqn.pt'))
 testTriplets = torch.load('testTriplets.pt')
 testPairs = utilsVer.generatePairs(testTriplets)
-print testPairs
+# print testPairs
 
-for pair in trainPairs:
-    if pair[0] == pair[1]:
-        label = 1
-    else:
-        label = 0
+correctPairs = 0
+for pair in testPairs:
 
-    pid, framesDropInfo, framesCount, threshold, initialState = utilsRL.getTripletInfo(triplet, personIdxDict, personFramesDict)
+    pid, framesDropInfo, framesCount, threshold, initialState = utilsVer.getPairInfo(pair)
     state = initialState.clone()
-    print framesDropInfo
-    break
+    # print framesDropInfo
+
     for t in count():
         print("T Loop Running current t=", t)
-        action = utilsRL.getAction(pid.clone(), framesCount.clone(), state.clone(), framesDropInfo.clone(), model)
-        nextState, framesDropInfo, reward, done = utilsRL.performAction(state, action, threshold, pid, framesDropInfo, framesCount)
-        memory.push(pid, framesCount, state, action, nextState, reward, framesDropInfo)
+        action = utilsVer.getAction(pair, Variable(pid.clone()), framesCount.clone(), state.clone(), framesDropInfo.clone(), model)
+
+        nextState, framesDropInfo, reward = utilsVer.performAction(state, action, threshold, pid, framesDropInfo, framesCount)
+
         state = nextState.clone()
+
+        done = utilsVer.checkTerminal(pid, framesCount, state, framesDropInfo, model)
+
         if done:
-            episodeDurations.append(t + 1)
             break
+
+    terminalState = state.clone()
+    sim = utilsVer.findSimilarity(pair, terminalState)
+    if pair[0][0] == pair[1][0] and sim == 1:
+        correctPairs += 1
+    elif pair[0][0] != pair[1][0] and sim == 0:
+        correctPairs += 1
+    print("Accuracy in 225 triplets = {}".format(float(correctPairs) / float(len(testPairs)) * 100))

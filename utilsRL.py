@@ -56,6 +56,7 @@ steps_done = 0
 EPS_START = 1.0
 EPS_END = 0.1
 EPS_DECAY = 1000
+MAX_FRAME_COUNT = 192
 
 class ReplayMemory(object):
 
@@ -142,8 +143,8 @@ def getTripletInfo(triplet, personIdxDict, personFramesDict):
     return pid, framesDropInfo, framesCount, threshold, initialState
 
 def saveTestTriplet(testTriplets):
-    triplets = torch.IntTensor(75, 3)
-    for i in range(75):
+    triplets = torch.IntTensor(len(testTriplets), 3)
+    for i in range(len(testTriplets)):
         triplets[i] = torch.IntTensor(testTriplets[i])
     torch.save(triplets, "testTriplets.pt")
 
@@ -286,21 +287,38 @@ tripletRNNOP = buildModel.TripletNet(rnn)
 if torch.cuda.is_available():
     tripletRNNOP.cuda()
 
-tripletRNNRGB.load_state_dict(torch.load('/Users/prateek/8thSem/gpu-rl/runs/model_run_rgb.pt'))
-tripletRNNOP.load_state_dict(torch.load('/Users/prateek/8thSem/gpu-rl/runs/model_run_op.pt'))
+tripletRNNRGB.load_state_dict(torch.load(dirPath + 'gpu-rl/runs/model_run_rgb.pt'))
+tripletRNNOP.load_state_dict(torch.load(dirPath + 'gpu-rl/runs/model_run_op.pt'))
 
 def getState(pid, framesCount, state, framesDropInfo):
     fc1, fc2, fc3 = countOnes(state)
-    anchorRGBFeatures = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam1/' + str(pid[0].data[0]) + '.pt')
-    positiveRGBFeatures = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam2/' + str(pid[1].data[0]) + '.pt')
-    negativeRGBFeatures = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam2/' + str(pid[2].data[0]) + '.pt')
+    if fc1 < sequence_length or fc2 < sequence_length or fc3 < sequence_length :
+        return torch.randn(3, 128).cuda() if torch.cuda.is_available() else torch.randn(3, 128)
+    # for j in range(sequence_length - fc1):
+    #     for i in range(state[0].size(0)):
+    #         if state[0, i] is not 1:
+    #             state[0, i] = 1
+    #             break
+    # for j in range(sequence_length - fc2):
+    #     for i in range(state[1].size(0)):
+    #         if state[1, i] is not 1:
+    #             state[1, i] = 1
+    #             break
+    # for j in range(sequence_length - fc3):
+    #     for i in range(state[2].size(0)):
+    #         if state[2, i] is not 1:
+    #             state[2, i] = 1
+    #             break
+    anchorRGBFeatures = torch.load(dirPath + 'features/featuresRGB/cam1/' + str(pid[0].data[0]) + '.pt')
+    positiveRGBFeatures = torch.load(dirPath + 'features/featuresRGB/cam2/' + str(pid[1].data[0]) + '.pt')
+    negativeRGBFeatures = torch.load(dirPath + 'features/featuresRGB/cam2/' + str(pid[2].data[0]) + '.pt')
     anchorFrames = torch.Tensor(fc1, 64)
     positiveFrames = torch.Tensor(fc2, 64)
     negativeFrames = torch.Tensor(fc3, 64)
 
-    anchorOPFeatures = torch.load('/Users/prateek/8thSem/features/featuresOP/cam1/' + str(pid[0].data[0]) + '.pt')
-    positiveOPFeatures = torch.load('/Users/prateek/8thSem/features/featuresOP/cam2/' + str(pid[1].data[0]) + '.pt')
-    negativeOPFeatures = torch.load('/Users/prateek/8thSem/features/featuresOP/cam2/' + str(pid[2].data[0]) + '.pt')
+    anchorOPFeatures = torch.load(dirPath + 'features/featuresOP/cam1/' + str(pid[0].data[0]) + '.pt')
+    positiveOPFeatures = torch.load(dirPath + 'features/featuresOP/cam2/' + str(pid[1].data[0]) + '.pt')
+    negativeOPFeatures = torch.load(dirPath + 'features/featuresOP/cam2/' + str(pid[2].data[0]) + '.pt')
     anchorOPFrames = torch.Tensor(fc1, 64)
     positiveOPFrames = torch.Tensor(fc2, 64)
     negativeOPFrames = torch.Tensor(fc3, 64)
@@ -339,6 +357,11 @@ def getState(pid, framesCount, state, framesDropInfo):
         if i < anchorBatchSize-1:
             anchorIP[i] = anchorFrames[sequence_length*i : sequence_length*(i+1)]
         else:
+            # print("pid", pid)
+            # print("frame size", personFramesDict[personIdxDict[256]])
+            # print("anchor size", anchorFrames.size())
+            # print("src size", anchorIP[i].size())
+            # print("dest size", anchorFrames[0 : sequence_length].size())
             anchorIP[i] = anchorFrames[0 : sequence_length]
     for i in range(maxBatchSize):
         if i < positiveBatchSize-1:
@@ -363,7 +386,7 @@ def getState(pid, framesCount, state, framesDropInfo):
     negativeOPFC = negativeOPFrames.size(0)
     maxOPFC = max(anchorOPFC, positiveOPFC, negativeOPFC)
     anchorOPBatchSize = anchorOPFC / sequence_length + 1
-    positiveOPBatchSize = positiveOPFC / sequence_length + 1
+    positiveOPBatchSize =  positiveOPFC / sequence_length + 1
     negativeOPBatchSize = negativeOPFC / sequence_length + 1
     maxOPBatchSize = max(anchorOPBatchSize, positiveOPBatchSize, negativeOPBatchSize)
     anchorOPIP = torch.Tensor(maxOPBatchSize, sequence_length, 64)
@@ -403,17 +426,22 @@ def getState(pid, framesCount, state, framesDropInfo):
 
     return features
 
-def getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_batch, policy_net):
+def getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_batch, model):
     values = torch.Tensor(pid_batch.size(0) / 3, 1)
-    for i in range(0, pid_batch.size(0), 3):
-        pid = pid_batch[i:i+3][:]
+    for x in range(0, pid_batch.size(0), 3):
+        pid = pid_batch[x:x+3][:]
         # print pid_batch.size()
-        framesCount = framesCount_batch[i:i+3][:]
-        state = state_batch[i:i+3][:]
-        framesDropInfo = framesDropInfo_batch[i:i+3][:]
+        framesCount = framesCount_batch[x:x+3][:]
+        state = state_batch[x:x+3][:]
+        framesDropInfo = framesDropInfo_batch[x:x+3][:]
         # print framesDropInfo_batch.size()
         stateReduced = getState(pid, framesCount, state, framesDropInfo)
-        qValues = policy_net(stateReduced).data
+        valueTic = time.time()
+        qValues = model(stateReduced).data
+        # print("qvales", torch.max(qValues))
+        valueToc = time.time()
+        # print("Time taken by value finder : {}seconds".format( valueToc-valueTic))
+        # print qValues
         maxValue = qValues[0][0]
         maxIndex = torch.IntTensor([0, 0])
         # print("printing qvalues size", qValues.size())
@@ -423,8 +451,13 @@ def getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_bat
                     if maxValue < qValues[i][j]:
                         # print("loop running")
                         maxValue = qValues[i][j]
+                        # print maxValue
+                        # print qValues[i][j]
                         maxIndex = torch.IntTensor([i, j*5])
-        values[i] = maxValue
+        values[x / 3] = maxValue
+    if torch.cuda.is_available():
+        values = values.cuda()
+    # print values
     return Variable(values)
 
 def getframeDropIndex(framesDropInfo, channel):
@@ -449,6 +482,7 @@ def getAction(pid, framesCount, state, framesDropInfo, policy_net):
         math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
     if sample > eps_threshold:
+        # print("Best action taken")
         stateReduced = getState(pid, framesCount, state, framesDropInfo)
         # print stateReduced
         qValues = policy_net(stateReduced).data
@@ -547,20 +581,23 @@ class DQN(nn.Module):
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, 128)
         self.fc4 = nn.Linear(128, 37)
-        self.dp1 = nn.Dropout(p=0.5)
-        self.dp2 = nn.Dropout(p=0.25)
+        # self.dp1 = nn.Dropout(p=0.5)
+        # self.dp2 = nn.Dropout(p=0.25)
+        self.bn1 = nn.BatchNorm1d(512)
+        self.bn2 = nn.BatchNorm1d(256)
+        self.bn3 = nn.BatchNorm1d(128)
 
     def forward(self, x):
         # print x.size()
         x = Variable(x)
-        x = self.fc1(x)
-        x = self.dp1(x)
-        x = self.fc2(x)
-        x = self.dp1(x)
-        x = self.fc3(x)
-        x = self.dp1(x)
-        x = self.fc4(x)
-        x = self.dp2(x)
+        x = F.relu(self.fc1(x))
+        x = self.bn1(x)
+        x = F.relu(self.fc2(x))
+        x = self.bn2(x)
+        x = F.relu(self.fc3(x))
+        x = self.bn3(x)
+        x = F.relu(self.fc4(x))
+        # print xc
         return x
 
 if __name__ == "__main__":

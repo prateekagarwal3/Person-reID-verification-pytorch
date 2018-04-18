@@ -19,8 +19,8 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 import torchvision.transforms as T
 
-num_epochs = 1
-testTrainSplit = 0.75
+num_epochs = 20
+testTrainSplit = 0.90
 BATCH_SIZE = 8
 GAMMA = 0.98
 EPS_START = 1.0
@@ -45,7 +45,7 @@ if torch.cuda.is_available():
 
 torch.backends.cudnn.enabled = True
 
-optimizer = optim.RMSprop(policy_net.parameters(), lr = 1e-6)
+optimizer = optim.RMSprop(policy_net.parameters(), lr = 1e-4)
 memory = utilsRL.ReplayMemory(10000)
 episodeDurations = []
 steps_done = 0
@@ -57,6 +57,7 @@ personNoDict = dict([v,k] for k,v in personIdxDict.items())
 utilsRL.saveTestTriplet(testTriplets)
 
 def optimizeModel():
+
     # print("Optimizing Model Begin")
     if len(memory) < BATCH_SIZE:
         # print("Optimizing Model End because of not sufficient training examples in replay memory")
@@ -88,14 +89,23 @@ def optimizeModel():
 
     nextState_batch = Variable(torch.cat(batch.nextState).cuda()) if torch.cuda.is_available() else Variable(torch.cat(batch.nextState))
     # nextState_batch = nextState_batch.view(BATCH_SIZE, 3, -1)
-
-    stateValues = Variable(utilsRL.getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_batch, policy_net).data, requires_grad=True)
+    stateValueTic = time.time()
+    stateValues = Variable(utilsRL.getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_batch, policy_net).data.cuda(), requires_grad=True) if torch.cuda.is_available() else Variable(utilsRL.getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_batch, policy_net).data, requires_grad=True)
 
     nextStateValues = utilsRL.getStateValues(pid_batch, framesCount_batch, nextState_batch, framesDropInfo_batch, target_net)
+    stateValueToc = time.time()
+    # print("Time taken by state value finder : {}seconds".format( stateValueToc-stateValueTic))
 
     expectedStateValues = (nextStateValues * GAMMA) + reward_batch
 
     loss = F.smooth_l1_loss(stateValues, expectedStateValues)
+    # print stateValues
+    # print reward_batch
+    # print expectedStateValues
+    f = open("loss90pdata20epochs.txt", "a+")
+    f.write(str(loss.data[0]) + "\n")
+    f.close()
+    # print loss
 
     lossTic = time.time()
     optimizer.zero_grad()
@@ -108,7 +118,7 @@ def optimizeModel():
     # print("Optimizing Model End")
 
 temp = 1
-for epoch in range(num_epochs):
+for epoch in range(1, num_epochs):
     epochTic = time.time()
     tripletCounter = 0
     for triplet in trainTriplets:
@@ -116,11 +126,9 @@ for epoch in range(num_epochs):
         tripletTic = time.time()
 
         # temp += 1
-        # if temp > 2:
-        #     break
-        # triplet = [103, 103, 107]
-        # triplet = [34, 34, 172]
-        # triplet = [259, 259, 133]
+        # if temp > 10:
+        #      break
+        # # triplet = [256, 256, 125]
 
         print("Triplet Loop Running, triplet=", triplet)
         pid, framesDropInfo, framesCount, threshold, initialState = utilsRL.getTripletInfo(triplet, personIdxDict, personFramesDict)
@@ -130,7 +138,10 @@ for epoch in range(num_epochs):
             # print("initialState", state)
             # print("T Loop Running current t=", t)
             # print framesDropInfo.view(3, 81)
+            actionTic = time.time()
             done, action = utilsRL.getAction(Variable(pid.clone()), framesCount.clone(), state.clone(), framesDropInfo.clone(), policy_net)
+            actionToc = time.time()
+            # print("Time taken by action finder : {}seconds".format( actionToc-actionTic))
             # print("initialState", state)
             # print framesDropInfo
             # print action
@@ -142,19 +153,23 @@ for epoch in range(num_epochs):
             # print(sum(state[0]), threshold[0])
             # print(sum(state[1]), threshold[1])
             # print(sum(state[2]), threshold[2])
-            # print done
+            # # print done
+            modelTrainTic = time.time()
             optimizeModel()
             # cprint("done", doneP)
             if done or doneP:
                 episodeDurations.append(t + 1)
                 break
+            modelTrainToc = time.time()
+            # print("Time taken by model updation : {}seconds".format( modelTrainToc-modelTrainTic))
 
-        if tripletCounter % 5 == 0:
+        # if tripletCounter % 5 == 0:
             target_net.load_state_dict(policy_net.state_dict())
         tripletToc = time.time()
         print("Time taken by triplet : {}seconds".format( tripletToc-tripletTic))
+    torch.save(target_net.state_dict(), dirPath + 'gpu-rl/runs/model_run_dqn' + str(epoch+1) + '.pt')
     epochToc = time.time()
-    print("Time by Epoch [{}/{}] : {}seconds".format(epoch+1, num_epochs, epochToc - epochTic))
+    print("Time by Epoch                             [{}/{}] : {}seconds".format(epoch+1, num_epochs, epochToc - epochTic))
 
 # print episodeDurations
 # print memory.__len__()
