@@ -13,36 +13,38 @@ import torchvision.models as models
 from torch.autograd import Variable
 import torchvision.transforms as transforms
 
-torch.manual_seed(7)
+# torch.manual_seed(7)
 
 sequence_length = 16
-input_size = 64
-hidden_size = 64
+input_size = 128
+hidden_size = 32 
 num_layers = 2
 learning_rate = 0.001
-momentum = 0
-alpha = torch.FloatTensor([0.4])
+momentum = 0.9
+alpha = torch.FloatTensor([0.3])
 if torch.cuda.is_available():
     alpha = alpha.cuda()
 alpha = Variable(alpha)
 num_epochs = 200
 testTrainSplit = 1
 
-seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
-seqRootOP = '/Users/prateek/8thSem/dataset/iLIDS-VID-OF-HVP/sequences'
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+print device
 
-personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
-personNoDict = dict([v,k] for k,v in personIdxDict.items())
-nTotalPersons = len(personFramesDict)
-trainTriplets, testTriplets = prepareDataset.generateTriplets(nTotalPersons, testTrainSplit)
-# print len(trainTriplets), len(testTriplets)
+trainTriplets, testTriplets = prepareDataset.generateTriplets(300, testTrainSplit)
+features_dir = '/data/home/prateeka/ilids_features/'
+
+if os.path.isfile("lossRGB.txt"):
+    os.remove("lossRGB.txt")
+if os.path.isfile("lossRGBv.txt"):
+    os.remove("lossRGBv.txt")
 
 class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers):
         super(RNN, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout = 0.25)
 
     def forward(self, x):
         h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
@@ -60,131 +62,111 @@ tripletRNNRGB = buildModel.TripletNet(rnn)
 if torch.cuda.is_available():
     tripletRNNRGB.cuda()
 
-tripletRNNOP = buildModel.TripletNet(rnn)
+def get_n_params(model):
+    pp=0
+    for p in list(model.parameters()):
+        nn=1
+        for s in list(p.size()):
+            nn = nn*s
+        pp += nn
+    return pp
+
+print get_n_params(tripletRNNRGB)
+
+model_parameters = filter(lambda p: p.requires_grad, tripletRNNRGB.parameters())
+params = sum([np.prod(p.size()) for p in model_parameters])
+print params
+
+cos = nn.CosineSimilarity(dim=2, eps=1e-6)
+
+# def triplet_loss(H, Hp, Hn):
+#     zero = Variable(torch.zeros(1).cuda()) if torch.cuda.is_available() else Variable(torch.zeros(1))
+#     return torch.mean(torch.mean(torch.max(zero, alpha - cos(H, Hp) + cos(Hp, Hn)), dim=1))
+
+triplet_loss = nn.TripletMarginLoss(margin=0.4, p=2)
+
+optimizerRGB = torch.optim.Adam(tripletRNNRGB.parameters(), lr = learning_rate)#, momentum = momentum)
+
 if torch.cuda.is_available():
-    tripletRNNOP.cuda()
+    torch.backends.cudnn.benchmark = True
 
-cos = nn.CosineSimilarity(dim=1, eps=1e-6)
-optimizerRGB = torch.optim.SGD(tripletRNNRGB.parameters(), lr=learning_rate, momentum=momentum)
-optimizerOP = torch.optim.SGD(tripletRNNOP.parameters(), lr=learning_rate, momentum=momentum)
+def input_creator(triplet):
+    anchorFrames = torch.load(features_dir + 'cam1/' + str(triplet[0])+'.pt')
+    positiveFrames = torch.load(features_dir + 'cam2/' + str(triplet[1])+'.pt')
+    negativeFrames = torch.load(features_dir + 'cam2/' + str(triplet[2])+'.pt')
+    anchorFC = anchorFrames.size(0)
+    positiveFC = positiveFrames.size(0)
+    negativeFC = negativeFrames.size(0)
+    maxFC = min(anchorFC, positiveFC, negativeFC)
+    anchorBatchSize = anchorFC / sequence_length + 1
+    positiveBatchSize = positiveFC / sequence_length + 1
+    negativeBatchSize = negativeFC / sequence_length + 1
+    maxBatchSize = min(anchorBatchSize, positiveBatchSize, negativeBatchSize)
+    anchorIP = torch.Tensor(maxBatchSize, sequence_length, 128)
+    positiveIP = torch.Tensor(maxBatchSize, sequence_length, 128)
+    negativeIP = torch.Tensor(maxBatchSize, sequence_length, 128)
+    for i in range(maxBatchSize):
+        if i < anchorBatchSize-1:
+            anchorIP[i] = anchorFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            anchorIP[i] = anchorFrames[0 : sequence_length]
+    for i in range(maxBatchSize):
+        if i < positiveBatchSize-1:
+            positiveIP[i] = positiveFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            positiveIP[i] = positiveFrames[0 : sequence_length]
+    for i in range(maxBatchSize):
+        if i < negativeBatchSize-1:
+            negativeIP[i] = negativeFrames[sequence_length*i : sequence_length*(i+1)]
+        else:
+            negativeIP[i] = negativeFrames[0 : sequence_length]
+    return anchorIP, positiveIP, negativeIP
 
-# if torch.cuda.is_available():
-torch.backends.cudnn.benchmark = True
+def test(modelRGB):
+    print("******** Testing ********")
+    modelRGB.eval()
+    for bIter in range(0, len(testTriplets), 15):
+        triplet = [testTriplets[bIter][0].item(), testTriplets[bIter][1].item(), testTriplets[bIter][2].item()]
+        anchorIP, positiveIP, negativeIP = input_creator(triplet)
+        H, Hp, Hn = tripletRNNRGB(anchorIP, positiveIP, negativeIP)
+        for tIter in range(bIter+1, bIter+15):
+            triplet = [testTriplets[tIter][0].item(), testTriplets[tIter][1].item(), testTriplets[tIter][2].item()]
+            anchorIP, positiveIP, negativeIP = input_creator(triplet)
+            Ht, Hpt, Hnt = tripletRNNRGB(anchorIP, positiveIP, negativeIP)
+            H = torch.cat((H, Ht), dim=0)
+            Hp = torch.cat((Hp, Hpt), dim=0)
+            Hn = torch.cat((Hn, Hnt), dim=0)
+        lossRGB = triplet_loss(H, Hp, Hn)
+        print lossRGB.data.item()
+        f = open("lossRGBv.txt", "a+")
+        f.write(str(lossRGB.data.item()) + "\n")
+        f.close()
 
-f = open("lossRCNN.txt", "w+")
-
-count = 1
-tripletRNNRGB.train()
 for epoch in range(num_epochs):
     eTic = time.time()
     print("Epoch {}/{} starts".format(epoch+1, num_epochs))
-    for triplet in trainTriplets:
-        tic = time.time()
-        # triplet = [15,15,213]
-        # count += 1
-        # if(count > 2):
-            # break
-        print("Triplet being used : ", triplet)
-
-        anchorFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam1/' + str(triplet[0])+'.pt')
-        positiveFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam2/' + str(triplet[1])+'.pt')
-        negativeFrames = torch.load('/Users/prateek/8thSem/features/featuresRGB/cam2/' + str(triplet[2])+'.pt')
-        anchorFC = anchorFrames.size(0)
-        positiveFC = positiveFrames.size(0)
-        negativeFC = negativeFrames.size(0)
-        maxFC = max(anchorFC, positiveFC, negativeFC)
-        anchorBatchSize = anchorFC / sequence_length + 1
-        positiveBatchSize = positiveFC / sequence_length + 1
-        negativeBatchSize = negativeFC / sequence_length + 1
-        maxBatchSize = max(anchorBatchSize, positiveBatchSize, negativeBatchSize)
-        anchorIP = torch.Tensor(maxBatchSize, sequence_length, 64)
-        positiveIP = torch.Tensor(maxBatchSize, sequence_length, 64)
-        negativeIP = torch.Tensor(maxBatchSize, sequence_length, 64)
-        for i in range(maxBatchSize):
-            if i < anchorBatchSize-1:
-                anchorIP[i] = anchorFrames[sequence_length*i : sequence_length*(i+1)]
-            else:
-                anchorIP[i] = anchorFrames[0 : sequence_length]
-        for i in range(maxBatchSize):
-            if i < positiveBatchSize-1:
-                positiveIP[i] = positiveFrames[sequence_length*i : sequence_length*(i+1)]
-            else:
-                positiveIP[i] = positiveFrames[0 : sequence_length]
-        for i in range(maxBatchSize):
-            if i < negativeBatchSize-1:
-                negativeIP[i] = negativeFrames[sequence_length*i : sequence_length*(i+1)]
-            else:
-                negativeIP[i] = negativeFrames[0 : sequence_length]
+    tripletRNNRGB.train() 
+    for bIter in range(0, len(trainTriplets), 15):
+        triplet = [trainTriplets[bIter][0].item(), trainTriplets[bIter][1].item(), trainTriplets[bIter][2].item()]
+        anchorIP, positiveIP, negativeIP = input_creator(triplet)
         H, Hp, Hn = tripletRNNRGB(anchorIP, positiveIP, negativeIP)
-        # print H, Hp, Hn
-
-        lossRGB = torch.zeros(1)
-        if torch.cuda.is_available():
-            lossRGB = loss.cuda()
-        lossRGB = Variable(lossRGB)
-        zero = torch.zeros(1)
-        if torch.cuda.is_available():
-            zero = zero.cuda()
-        zero = Variable(zero)
-        lossRGB += torch.sum(torch.max(zero, alpha - cos(H[0], Hp[0]) + cos(H[0], Hn[0])))
-        lossRGB /= sequence_length
-        f.write(str(lossRGB.data))
-        # print lossRGB
+        for tIter in range(bIter+1, bIter+15):
+            triplet = [trainTriplets[tIter][0].item(), trainTriplets[tIter][1].item(), trainTriplets[tIter][2].item()]
+            anchorIP, positiveIP, negativeIP = input_creator(triplet)
+            Ht, Hpt, Hnt = tripletRNNRGB(anchorIP, positiveIP, negativeIP)
+            H = torch.cat((H, Ht), dim=0)
+            Hp = torch.cat((Hp, Hpt), dim=0)
+            Hn = torch.cat((Hn, Hnt), dim=0)
+        lossRGB = triplet_loss(H, Hp, Hn)
+        print lossRGB.data.item()
+        f = open("lossRGB.txt", "a+")
+        f.write(str(lossRGB.data.item()) + "\n")
+        f.close()
         optimizerRGB.zero_grad()
         lossRGB.backward()
         optimizerRGB.step()
-
-        anchorOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam1/' + str(triplet[0])+'.pt')
-        positiveOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam2/' + str(triplet[1])+'.pt')
-        negativeOPFrames = torch.load('/Users/prateek/8thSem/features/featuresOP/cam2/' + str(triplet[2])+'.pt')
-        anchorOPFC = anchorOPFrames.size(0)
-        positiveOPFC = positiveOPFrames.size(0)
-        negativeOPFC = negativeOPFrames.size(0)
-        maxOPFC = max(anchorOPFC, positiveOPFC, negativeOPFC)
-        anchorOPBatchSize = anchorOPFC / sequence_length + 1
-        positiveOPBatchSize = positiveOPFC / sequence_length + 1
-        negativeOPBatchSize = negativeOPFC / sequence_length + 1
-        maxOPBatchSize = max(anchorOPBatchSize, positiveOPBatchSize, negativeOPBatchSize)
-        anchorOPIP = torch.Tensor(maxOPBatchSize, sequence_length, 64)
-        positiveOPIP = torch.Tensor(maxOPBatchSize, sequence_length, 64)
-        negativeOPIP = torch.Tensor(maxOPBatchSize, sequence_length, 64)
-        for i in range(maxBatchSize):
-            if i < anchorOPBatchSize-1:
-                anchorOPIP[i] = anchorOPFrames[sequence_length*i : sequence_length*(i+1)]
-            else:
-                anchorOPIP[i] = anchorOPFrames[0 : sequence_length]
-        for i in range(maxOPBatchSize):
-            if i < positiveOPBatchSize-1:
-                positiveOPIP[i] = positiveOPFrames[sequence_length*i : sequence_length*(i+1)]
-            else:
-                positiveOPIP[i] = positiveOPFrames[0 : sequence_length]
-        for i in range(maxOPBatchSize):
-            if i < negativeOPBatchSize-1:
-                negativeOPIP[i] = negativeOPFrames[sequence_length*i : sequence_length*(i+1)]
-            else:
-                negativeOPIP[i] = negativeOPFrames[0 : sequence_length]
-
-        HOP, HpOP, HnOP = tripletRNNOP(anchorOPIP, positiveOPIP, negativeOPIP)
-        # print HOP, HpOP, HnOP
-
-        lossOP = torch.zeros(1)
-        if torch.cuda.is_available():
-            lossOP = lossOP.cuda()
-        lossOP = Variable(lossOP)
-        zero = torch.zeros(1)
-        if torch.cuda.is_available():
-            zero = zero.cuda()
-        zero = Variable(zero)
-        lossOP += torch.sum(torch.max(zero, alpha - cos(HOP[0], HpOP[0]) + cos(HOP[0], HnOP[0])))
-        lossOP /= sequence_length
-        f.write(str(lossOP.data))
-        optimizerOP.zero_grad()
-        lossOP.backward()
-        optimizerOP.step()
-        toc = time.time()
-        print("Time being taken by one Triplet is ", str(toc-tic) + 's')
+    test(tripletRNNRGB)
     eToc = time.time()
     print("Epoch {}/{} ends, Time Taken is : {} seconds".format(epoch+1, num_epochs, eToc-eTic))
 
-torch.save(tripletRNNRGB.state_dict(), '/Users/prateek/8thSem/gpu-rl/runs/model_run_rgb.pt')
-torch.save(tripletRNNOP.state_dict(), '/Users/prateek/8thSem/gpu-rl/runs/model_run_op.pt')
+torch.save(tripletRNNRGB.state_dict(), '/data/home/prateeka/gpu-rl/runs/model_run_rgb.pt')

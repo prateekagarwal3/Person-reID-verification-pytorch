@@ -148,7 +148,7 @@ for cam in range(1, 3):
         anchorOPFeatures = HOP[0:anchorFC]
         positiveOPFeatures = HpOP[0:positiveFC]
         negativeOPFeatures = HnOP[0:negativeFC]
-        print anchorRGBFeatures
+        # print anchorRGBFeatures
         anchorFeatures = torch.cat((anchorRGBFeatures, anchorOPFeatures), dim=1)
         positiveFeatures = torch.cat((positiveRGBFeatures, positiveOPFeatures), dim=1)
         negativeFeatures = torch.cat((negativeRGBFeatures, negativeOPFeatures), dim=1)

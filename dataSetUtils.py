@@ -5,25 +5,19 @@ import buildModel
 import prepareDataset
 from PIL import Image
 from torch.autograd import Variable
-from sklearn.decomposition import PCA
 
-def principalComponent(X, rD):
-    X = X.data
-    X = X.numpy()
-    # X = np.random.random((250,4096))
-    pca = PCA(n_components=rD)
-    # print X.shape
-    Y = pca.fit_transform(X)
-    # print reduced.shape
-    return torch.from_numpy(Y)
+if sys.platform.startswith('linux'):
+    dirPath = '/data/home/prateeka/'
+elif sys.platform.startswith('darwin'):
+    dirPath = '/Users/prateek/8thSem/'
 
-seqRootRGB = '/Users/prateek/8thSem/dataset/iLIDS-VID/i-LIDS-VID/sequences/'
-seqRootOP = '/Users/prateek/8thSem/dataset/iLIDS-VID-OF-HVP/sequences/'
+seqRootRGB = dirPath + 'dataset/iLIDS-VID/i-LIDS-VID/sequences/'
+seqRootOP = dirPath + 'dataset/iLIDS-VID-OF-HVP/sequences/'
 personIdxDict, personFramesDict = prepareDataset.prepareDS(seqRootRGB)
 personNoDict = dict([v,k] for k,v in personIdxDict.items())
 
-featureDirRGB = "/Users/prateek/8thSem/features/featuresRGB/"
-featureDirOP = "/Users/prateek/8thSem/features/featuresOP/"
+featureDirRGB = dirPath + 'features/featuresVGG/RGB/'
+featureDirOP = dirPath + 'features/featuresVGG/OP/'
 
 for cam in range(1, 3):
     for i in range(1, 299, 3):
@@ -68,18 +62,18 @@ for cam in range(1, 3):
         print totalFrames.size()
         tic = time.time()
         features = buildModel.cnn(totalFrames)
-        features = principalComponent(features, 64)
+        # features = principalComponent(features, 64)
         print features.size()
         toc = time.time()
-        print("Time taken by CNN :", str(toc-tic))
+        print("Time taken by VGG :", str(toc-tic))
         print(fc1)
         print(fc2)
         print(fc3)
-        fileName = os.path.join(featureDir, camDir, str(i))
+        fileName = os.path.join(featureDirOP, camDir, str(i))
         torch.save(features[0:fc1], fileName+".pt")
 
-        fileName = os.path.join(featureDir, camDir, str(i+1))
+        fileName = os.path.join(featureDirOP, camDir, str(i+1))
         torch.save(features[fc1:fc1+fc2], fileName+".pt")
 
-        fileName = os.path.join(featureDir, camDir, str(i+2))
+        fileName = os.path.join(featureDirOP, camDir, str(i+2))
         torch.save(features[fc1+fc2:fc1+fc2+fc3], fileName+".pt")

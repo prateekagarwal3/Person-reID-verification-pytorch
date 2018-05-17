@@ -13,13 +13,13 @@ from sklearn.decomposition import PCA
 import torchvision.transforms as transforms
 
 def cnn(img):
-    alexnet = models.alexnet(pretrained=True)
+    vgg = models.vgg16(pretrained=True)
     if torch.cuda.is_available():
-        alexnet = alexnet.cuda()
-    mod = list(alexnet.classifier.children())
+        vgg = vgg.cuda()
+    mod = list(vgg.classifier.children())
     new_classifier = torch.nn.Sequential(*mod[:2])
-    alexnet.classifier = new_classifier
-    return alexnet(img)
+    vgg.classifier = new_classifier
+    return vgg(img)
 
 class TripletNet(nn.Module):
     def __init__(self, rnnOutput):

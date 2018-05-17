@@ -242,7 +242,9 @@ def findReward(weights, newWeights, pid, framesCount):
     initialSimilarityAB, initialSimilarityAC = findSimilarity(weights, pid, framesCount)
     # print initialSimilarityAB, initialSimilarityAC
     newSimilarityAB, newSimilarityAC = findSimilarity(newWeights, pid, framesCount)
+    # print newSimilarityAB, newSimilarityAC
     reward = (newSimilarityAB - initialSimilarityAB) - (newSimilarityAC - initialSimilarityAC)
+    # print("reward", reward)
     return reward
 
 def countOnes(state):
@@ -426,7 +428,7 @@ def getState(pid, framesCount, state, framesDropInfo):
 
     return features
 
-def getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_batch, model):
+def getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_batch, model, valueDetach):
     values = torch.Tensor(pid_batch.size(0) / 3, 1)
     for x in range(0, pid_batch.size(0), 3):
         pid = pid_batch[x:x+3][:]
@@ -437,7 +439,11 @@ def getStateValues(pid_batch, framesCount_batch, state_batch, framesDropInfo_bat
         # print framesDropInfo_batch.size()
         stateReduced = getState(pid, framesCount, state, framesDropInfo)
         valueTic = time.time()
-        qValues = model(stateReduced).data
+        if valueDetach:
+            qValues = model(stateReduced).detach().data
+        else:
+            qValues = model(stateReduced).data
+
         # print("qvales", torch.max(qValues))
         valueToc = time.time()
         # print("Time taken by value finder : {}seconds".format( valueToc-valueTic))
@@ -578,14 +584,18 @@ class DQN(nn.Module):
     def __init__(self):
         super(DQN, self).__init__()
         self.fc1 = nn.Linear(128, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 37)
+        self.fc2 = nn.Linear(512, 1024)
+        self.fc3 = nn.Linear(1024, 512)
+        self.fc4 = nn.Linear(512, 256)
+        self.fc5 = nn.Linear(256, 128)
+        self.fc6 = nn.Linear(128, 37)
         # self.dp1 = nn.Dropout(p=0.5)
         # self.dp2 = nn.Dropout(p=0.25)
         self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.bn3 = nn.BatchNorm1d(128)
+        self.bn2 = nn.BatchNorm1d(1024)
+        self.bn3 = nn.BatchNorm1d(512)
+        self.bn4 = nn.BatchNorm1d(256)
+        self.bn5 = nn.BatchNorm1d(128)
 
     def forward(self, x):
         # print x.size()
@@ -597,6 +607,10 @@ class DQN(nn.Module):
         x = F.relu(self.fc3(x))
         x = self.bn3(x)
         x = F.relu(self.fc4(x))
+        x = self.bn4(x)
+        x = F.relu(self.fc5(x))
+        x = self.bn5(x)
+        x = F.sigmoid(self.fc6(x))
         # print xc
         return x
 

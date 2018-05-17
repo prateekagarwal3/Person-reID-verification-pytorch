@@ -79,7 +79,12 @@ def generateTriplets(nTotalPersons, testTrainSplit):
     inds = torch.randperm(nTotalPersons)
     inds += 1
     trainInds = inds[0:splitPoint]
-    testInds = inds[(splitPoint):nTotalPersons+1]
+    # print trainInds
+    # testInds = inds[(splitPoint):nTotalPersons+1]
+    # trainInds = torch.load("/Users/prateek/8thSem/features/trainInds.pt")
+    # testInds = torch.load("/Users/prateek/8thSem/features/testInds.pt")
+    # random.shuffle(trainInds)
+    # random.shuffle(testInds)
     trainTriplets = []
     testTriplets = []
     for person in trainInds:
@@ -93,17 +98,17 @@ def generateTriplets(nTotalPersons, testTrainSplit):
             else:
                 break
         trainTriplets.append(triplet)
-    for person in testInds:
-        triplet = [0, 0, 0]
-        triplet[0] = person
-        triplet[1] = person
-        while(1):
-            triplet[2] = random.choice(testInds)
-            if triplet[2] == person:
-                triplet[2] = random.choice(testInds)
-            else:
-                break
-        testTriplets.append(triplet)
+    # for person in testInds:
+    #     triplet = [0, 0, 0]
+    #     triplet[0] = person
+    #     triplet[1] = person
+    #     while(1):
+    #         triplet[2] = random.choice(testInds)
+    #         if triplet[2] == person:
+    #             triplet[2] = random.choice(testInds)
+    #         else:
+    #             break
+    #     testTriplets.append(triplet)
     return trainTriplets, testTriplets
 
 def loadImage(filename):
