@@ -1,1 +1,1 @@
-working on the problem on person reidentification in videos using Deep RL.
+Work on the problem on attention aware-person reidentification in videos using Deep RL. This work is inspired from [Attention-Aware-Deep Reinforcement Learning for Video Face Recognition] (http://openaccess.thecvf.com/content_ICCV_2017/papers/Rao_Attention-Aware_Deep_Reinforcement_ICCV_2017_paper.pdf)
